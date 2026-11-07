@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-export const seeds = [
+const seeds = [
   ['Cut-paper collage', ['cut paper illustration', 'paper cutout animation', 'layered paper collage']],
   ['Ink-and-wash 2D', ['ink and wash illustration', 'watercolor ink animation', 'sumi-e animation']],
   ['Felt stop-motion', ['needle felt animation', 'felt puppet stop motion', 'wool character animation']],
@@ -17,8 +17,8 @@ export const seeds = [
   ['Charcoal illustration', ['charcoal drawing animation', 'charcoal illustration', 'smudged charcoal art']],
 ];
 
-export const normalize = value => value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
-export function validateTags(tags = []) {
+const normalize = value => value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+function validateTags(tags = []) {
   if (!Array.isArray(tags) || tags.length > 12 || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > 60)) throw new Error('Use up to 12 tags, each 1–60 characters.');
   return [...new Set(tags.map(tag => tag.trim().toLowerCase()))];
 }

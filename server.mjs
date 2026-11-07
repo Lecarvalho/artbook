@@ -37,7 +37,7 @@ function runCodex(args, { input = '', cwd = root, timeout = 180000 } = {}) {
   });
 }
 
-export async function codexStatus() {
+async function codexStatus() {
   try {
     const result = await runCodex(['login', 'status'], { timeout: 15000 });
     const connected = /logged in using chatgpt/i.test(result.stdout + result.stderr);
@@ -45,7 +45,7 @@ export async function codexStatus() {
   } catch (error) { return { connected: false, message: error.message }; }
 }
 
-export async function analyzeImage(path, styles, dataDir, excludeImageId) {
+async function analyzeImage(path, styles, dataDir, excludeImageId) {
   const status = await codexStatus();
   if (!status.connected) throw new Error(status.message);
   const job = await mkdtemp(join(dataDir, 'analysis-'));
@@ -85,7 +85,7 @@ const overlap = (a, b) => [...a].filter(w => b.has(w)).length;
 
 // Second pass: visually compare the new image with one reference image per collected style.
 // Classification stays independent; this step only decides collection membership.
-export function matchCandidates(styles, clean, dataDir, excludeImageId) {
+function matchCandidates(styles, clean, dataDir, excludeImageId) {
   const target = words([clean.name, ...clean.tags].join(' '));
   return styles
     .map(style => ({ style, image: style.images.find(i => i.id !== excludeImageId) }))

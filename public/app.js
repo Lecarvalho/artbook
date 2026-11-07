@@ -202,17 +202,16 @@ function heroThumbs(style) {
   const many = style.images.length > 1;
   return many ? `<div class="hero-thumbs">${style.images.map((i, n) => `<button class="hero-thumb${n ? '' : ' active'}" data-slide="${n}" aria-label="Show reference ${n + 1}"${n ? '' : ' aria-current="true"'}><img src="${imageURL(i)}" alt="" loading="lazy"></button>`).join('')}</div>` : '';
 }
-function heroCarousel(style, overlay = '') {
+function heroCarousel(style) {
   const count = style.images.length;
   if (!count) return '<div class="detail-empty hero-empty">Your next inspiration starts here.<br>Explore the searches below, then bring back an image you love.</div>';
   const many = count > 1;
   return `<section class="hero" aria-roledescription="carousel" aria-label="${escape(style.name)} references">
-    <div class="hero-frame">${overlay}
+    <div class="hero-frame">
     <div class="hero-stage">
       <div class="hero-track" tabindex="0" aria-live="polite">${style.images.map((i, n) => `<button class="hero-slide" data-zoom="${n}" aria-roledescription="slide" aria-haspopup="dialog" aria-label="Reference ${n + 1} of ${count}. Select to view larger"><img src="${imageURL(i)}" alt="${escape(i.originalName)}" ${n > 1 ? 'loading="lazy"' : ''}></button>`).join('')}</div>
       ${many ? '<button class="hero-nav hero-prev" data-step="-1" aria-label="Previous reference"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></button><button class="hero-nav hero-next" data-step="1" aria-label="Next reference"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></button>' : ''}
       <span class="hero-status" aria-hidden="true"><span class="import-pulse"></span>Identifying style…</span>
-      <span class="hero-count"${many ? "" : " hidden"}><span id="hero-index">1</span> / ${count}</span>
     </div>
     </div>
   </section>`;
@@ -385,7 +384,7 @@ function setupCarousel(slide = 0) {
   track.scrollLeft = start * track.clientWidth;
   heroTarget = null;
   selectImage(start);
-  if (start) { $('#hero-index').textContent = start + 1; document.querySelectorAll('.hero-thumb').forEach((t, n) => { t.classList.toggle('active', n === start); t.toggleAttribute('aria-current', n === start); }); }
+  if (start) { document.querySelectorAll('.hero-thumb').forEach((t, n) => { t.classList.toggle('active', n === start); t.toggleAttribute('aria-current', n === start); }); }
   heroIndex = start;
   document.querySelectorAll('[data-zoom]').forEach(button => button.onclick = () => openLightbox(Number(button.dataset.zoom)));
   // React to width changes only: height changes (e.g. a phone's address bar) must not re-snap or repaint the slides.
@@ -418,7 +417,6 @@ function setupCarousel(slide = 0) {
     frame = requestAnimationFrame(() => {
       const index = carouselIndex();
       if (index === heroTarget && track.scrollLeft % track.clientWidth < 2) heroTarget = null;
-      $('#hero-index').textContent = index + 1;
       heroIndex = index;
       selectImage(index);
       applyTint();
