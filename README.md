@@ -2,7 +2,7 @@
 
 A personal library for visual references. Drop in an image and Artbook names its art style, groups it with similar images, and gives you prompts and searches to find more like it. Everything runs and stays on your computer.
 
-![Artbook on desktop](docs/demo-desktop.gif)
+![Artbook on desktop](docs/demo-desktop.webp)
 
 ## What it does
 
@@ -38,7 +38,7 @@ PNG, JPEG and WebP up to 15 MB. Exact duplicates are skipped. You can keep addin
 
 ## On your phone
 
-<img src="docs/demo-mobile.gif" alt="Artbook on a phone" width="270" align="right">
+<img src="docs/demo-mobile.webp" alt="Artbook on a phone" width="270" align="right">
 
 Start Artbook with `npm run start:network` (or `Start Artbook (network).cmd`). The window shows a link with an access key, like `http://192.168.x.x:4317/?key=…`. Open it once on your phone and it stays signed in.
 

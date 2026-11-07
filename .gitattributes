@@ -2,3 +2,4 @@
 *.cmd text eol=crlf
 *.ttf binary
 *.png binary
+*.webp binary
