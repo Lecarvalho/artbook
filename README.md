@@ -42,7 +42,7 @@ Start Artbook with `npm run start:network` (or `Start Artbook (network).cmd`). T
 
 Only devices with the key can open your library. Anyone you give the link to can browse, edit and delete it, and use your Codex allowance, so share it only with people you trust. Delete `data/access-key.txt` and restart to change the key.
 
-<video src="https://github.com/user-attachments/assets/006a1e4b-0d20-4ddf-b9f6-372915c2e58f" width="300" controls muted></video>
+https://github.com/user-attachments/assets/006a1e4b-0d20-4ddf-b9f6-372915c2e58f
 
 ## Privacy and your Codex allowance
 
