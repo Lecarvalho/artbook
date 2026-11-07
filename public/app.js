@@ -400,10 +400,16 @@ function showPalette() {
   const img = document.querySelectorAll('.hero-slide img')[style?.images.indexOf(selectedImage) ?? -1];
   const palette = img && edgeFills.get(img.currentSrc || img.src)?.palette;
   box.hidden = !palette?.length;
-  // Both prompts end with the exact palette, so a copied prompt carries the image's colors.
+  // Both prompts end with the exact palette, so a copied prompt carries the image's colors. Colors are grouped by
+  // coverage in words (image generators follow "dominant/accent" better than percentages); the most prominent
+  // color always counts as dominant.
+  const bands = [['dominant', c => c.share >= 0.2], ['secondary', c => c.share >= 0.05], ['accents', () => true]];
+  const grouped = new Map(bands.map(([name]) => [name, []]));
+  (palette || []).forEach((c, n) => grouped.get(n === 0 ? 'dominant' : bands.find(([, fits]) => fits(c))[0]).push(c.hex));
+  const description = [...grouped].filter(([, hexes]) => hexes.length).map(([name, hexes]) => `${name} ${hexes.join(', ')}`).join('; ');
   document.querySelectorAll('.prompt-colors').forEach(line => {
     line.hidden = box.hidden;
-    line.textContent = box.hidden ? '' : `Color palette: ${palette.map(c => c.hex).join(', ')}.`;
+    line.textContent = box.hidden ? '' : `Color palette: ${description}.`;
   });
   if (box.hidden) return;
   if (box.dataset.colors === palette.map(c => c.hex).join()) return;
