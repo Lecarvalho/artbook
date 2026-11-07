@@ -192,8 +192,8 @@ function referencePanel(style) {
           <button role="tab" id="tab-image-prompt" data-prompt-tab="image-prompt" aria-controls="panel-image-prompt">Similar image</button>
           <button role="tab" id="tab-style-prompt" data-prompt-tab="style-prompt" aria-controls="panel-style-prompt">Same style, new subject</button>
         </div><button class="text-button" id="copy-prompt">Copy</button></div>
-        <div class="prompt-block" role="tabpanel" id="panel-image-prompt" aria-labelledby="tab-image-prompt"><p id="image-prompt"></p></div>
-        <div class="prompt-block" role="tabpanel" id="panel-style-prompt" aria-labelledby="tab-style-prompt"><p id="style-prompt"></p><p class="field-hint">Replace the subject in [brackets] with your own.</p></div>
+        <div class="prompt-block" role="tabpanel" id="panel-image-prompt" aria-labelledby="tab-image-prompt"><p id="image-prompt"></p><p class="prompt-colors" hidden></p></div>
+        <div class="prompt-block" role="tabpanel" id="panel-style-prompt" aria-labelledby="tab-style-prompt"><p id="style-prompt"></p><p class="prompt-colors" hidden></p><p class="field-hint">Replace the subject in [brackets] with your own.</p></div>
       </div>
       <p id="prompts-missing" class="field-hint">No prompts yet for this image. Re-identify it to create them.</p>
       <p id="reidentify-status" role="status"></p><p id="move-error" role="alert"></p>
@@ -400,6 +400,11 @@ function showPalette() {
   const img = document.querySelectorAll('.hero-slide img')[style?.images.indexOf(selectedImage) ?? -1];
   const palette = img && edgeFills.get(img.currentSrc || img.src)?.palette;
   box.hidden = !palette?.length;
+  // Both prompts end with the exact palette, so a copied prompt carries the image's colors.
+  document.querySelectorAll('.prompt-colors').forEach(line => {
+    line.hidden = box.hidden;
+    line.textContent = box.hidden ? '' : `Color palette: ${palette.map(c => c.hex).join(', ')}.`;
+  });
   if (box.hidden) return;
   if (box.dataset.colors === palette.map(c => c.hex).join()) return;
   box.dataset.colors = palette.map(c => c.hex).join();
@@ -459,8 +464,9 @@ function setupCarousel(slide = 0) {
     if (next) { showPromptTab(next.dataset.promptTab); next.focus(); }
   });
   $('#copy-prompt').onclick = async () => {
-    const panel = document.querySelector('.prompt-block:not([hidden]) p');
-    try { await copyText(panel.textContent); toast('Prompt copied.'); }
+    const panel = document.querySelector('.prompt-block:not([hidden])');
+    const text = [...panel.querySelectorAll('p:not(.field-hint):not([hidden])')].map(p => p.textContent).filter(Boolean).join('\n\n');
+    try { await copyText(text); toast('Prompt copied.'); }
     catch { toast('Select the prompt and copy it manually.'); }
   };
   $('#reidentify-image').onclick = reidentifyImage;

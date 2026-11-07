@@ -665,6 +665,9 @@ dialog{border-radius:8px}
 .image-palette[hidden]{display:none}
 .swatch{width:16px;height:16px;min-height:0;padding:0;border:0;border-radius:3px;box-shadow:inset 0 0 0 1px #1c1f1d1a;transition:transform .15s ease}
 .swatch:hover{transform:translateY(-2px)}
+/* The palette line closes each prompt as its own short paragraph. */
+.prompt-block>p.prompt-colors{margin-top:.8em}
+.prompt-block>p.prompt-colors[hidden]{display:none}
 /* Desktop: the prompt box keeps at least a few lines; in a short window the info column scrolls instead of overlapping. */
 @media(min-width:900px){
   .style-info>.image-panel{min-height:auto}
