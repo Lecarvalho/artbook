@@ -2,7 +2,7 @@
 
 A personal library for visual references. Drop in an image and Artbook names its art style, groups it with similar images, and gives you prompts and searches to find more like it. Everything runs and stays on your computer.
 
-![Artbook on desktop](docs/demo-desktop.webp)
+https://github.com/user-attachments/assets/7d09adbe-3a3d-403f-822d-6c361c87af74
 
 ## What it does
 
@@ -38,13 +38,11 @@ PNG, JPEG and WebP up to 15 MB. Exact duplicates are skipped. You can keep addin
 
 ## On your phone
 
-<img src="docs/demo-mobile.webp" alt="Artbook on a phone" width="270" align="right">
-
 Start Artbook with `npm run start:network` (or `Start Artbook (network).cmd`). The window shows a link with an access key, like `http://192.168.x.x:4317/?key=…`. Open it once on your phone and it stays signed in.
 
 Only devices with the key can open your library. Anyone you give the link to can browse, edit and delete it, and use your Codex allowance, so share it only with people you trust. Delete `data/access-key.txt` and restart to change the key.
 
-<br clear="right">
+<video src="https://github.com/user-attachments/assets/006a1e4b-0d20-4ddf-b9f6-372915c2e58f" width="300" controls muted></video>
 
 ## Privacy and your Codex allowance
 

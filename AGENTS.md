@@ -13,7 +13,7 @@ Artbook is a local visual-style reference library. It uses Node.js 22+, native E
 - `public/index.html`, `public/app.js`, `public/style.css`: browser interface.
 - `analysis-schema.json`, `match-schema.json`: structured outputs for classification and matching.
 - `test/*.test.mjs`: Node's built-in test runner tests.
-- `README.md`: setup and supported behavior. `PRODUCT.md` and `DESIGN.md`: product and interface guidance. `docs/`: README media.
+- `README.md`: setup and supported behavior (demo videos are GitHub-hosted attachments). `PRODUCT.md` and `DESIGN.md`: product and interface guidance.
 
 ## Run and verify
 
