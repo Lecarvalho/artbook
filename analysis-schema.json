@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "keywords": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "existingStyleId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "imagePrompt": {
+      "type": "string"
+    },
+    "stylePrompt": {
+      "type": "string"
+    },
+    "aiWatermark": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "name",
+    "keywords",
+    "tags",
+    "existingStyleId",
+    "title",
+    "description",
+    "imagePrompt",
+    "stylePrompt",
+    "aiWatermark"
+  ]
+}

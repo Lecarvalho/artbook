@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-06T00:00:00Z",
+  "title": "Design System: Artbook",
+  "extensions": {
+    "shadows": [
+      {
+        "name": "overlay",
+        "value": "0 16px 60px #22332b24",
+        "purpose": "Dialogs and toast feedback; CSS --shadow."
+      },
+      {
+        "name": "cover-hover",
+        "value": "0 5px 18px #22332b18",
+        "purpose": "Gallery covers on button hover."
+      },
+      {
+        "name": "close-float",
+        "value": "0 2px 10px #22332b1f",
+        "purpose": "Floating round close button in the style modal."
+      }
+    ],
+    "motion": [
+      {
+        "name": "cover",
+        "value": "box-shadow .2s",
+        "purpose": "Cover hover feedback."
+      },
+      {
+        "name": "dropzone",
+        "value": "background .15s",
+        "purpose": "Drag-over feedback."
+      },
+      {
+        "name": "import-pulse",
+        "value": "pulse 1.2s ease-in-out infinite",
+        "purpose": "Import dot fades to opacity .3 at 50%."
+      },
+      {
+        "name": "lightbox-in",
+        "value": "lightbox-in .28s cubic-bezier(.2,.7,.2,1)",
+        "purpose": "Lightbox fades from opacity 0 and scale .94; backdrop fades in alongside."
+      },
+      {
+        "name": "hero-busy",
+        "value": "hero-spin 2.4s linear, hero-glow 1.8s ease-in-out, hero-sweep 1.8s ease-in-out (all infinite)",
+        "purpose": "Re-identify busy state on the hero stage: rotating conic border, glow pulse and light sweep."
+      },
+      {
+        "name": "mosaic-hover",
+        "value": "transform .3s",
+        "purpose": "Card mosaic tiles scale to 1.03 on hover."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation: none !important; transition: none !important",
+        "purpose": "Applied to all elements for prefers-reduced-motion: reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide-min",
+        "value": "1600px"
+      },
+      {
+        "name": "compact-max",
+        "value": "1150px"
+      },
+      {
+        "name": "mobile-max",
+        "value": "700px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main import and save actions.",
+      "html": "<button class=\"primary\">Import images</button>",
+      "css": ".primary{font-family:'Segoe UI',system-ui,sans-serif;border:0;border-radius:8px;font-size:13px;font-weight:600;min-height:44px;padding:12px 19px;display:inline-flex;align-items:center;justify-content:center;gap:9px;background:var(--accent,#346c49);color:white;white-space:nowrap;cursor:pointer}.primary:hover{background:#285739}.primary:focus-visible{outline:3px solid var(--accent,#346c49);outline-offset:4px}.primary:disabled{cursor:wait;opacity:.6}"
+    }
+  ],
+  "narrative": {
+    "overview": "A light, image-led gallery with pale green-tinted surfaces, restrained controls, and colored specimens for empty collections.",
+    "keyCharacteristics": [
+      "Large image covers",
+      "System sans-serif typography",
+      "Green actions and focus outlines",
+      "Flat surfaces with modal elevation"
+    ],
+    "rules": [],
+    "dos": [
+      "Reuse the existing palette and rounded surfaces.",
+      "Preserve full-image proportions in detail views and visible keyboard focus."
+    ],
+    "donts": [
+      "Do not present empty-style specimens as saved image references."
+    ]
+  }
+}

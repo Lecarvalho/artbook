@@ -1,0 +1,10 @@
+# Your personal library: images, metadata and the network access key. Never published.
+data/
+data-backup-*/
+# Design-review screenshots contain library images.
+.impeccable/review/
+*.log
+node_modules/
+.mailbox/
+.DS_Store
+Thumbs.db

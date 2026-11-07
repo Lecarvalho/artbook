@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Artbook — Your style reference</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Artbook home">Artbook</a>
+    <p class="sidebar-note">A place for your visual curiosity.</p>
+    <nav aria-label="Library"><button data-view="all" class="nav-button active"><span>All styles</span><span id="all-count">0</span></button><button data-view="collected" class="nav-button"><span>My references</span><span id="collected-count">0</span></button><button data-view="empty" class="nav-button"><span>To explore</span><span id="empty-count">0</span></button></nav>
+    <div class="sidebar-bottom"><div class="connection"><span id="connection-dot"></span><span id="connection-label">Checking Codex…</span></div><p id="connection-detail">Your library lives on this computer.</p><button id="recheck" class="text-button">Check connection</button></div>
+  </aside>
+  <main>
+    <header class="topbar"><span class="topbar-hint">Paste, drop or import an image · or paste a link</span><div class="topbar-actions"><button id="new-style" class="text-button">Add an empty style</button><button class="primary" id="upload-top"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4"/></svg>Import images</button></div></header>
+    <input id="file-input" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+    <section id="import-panel" class="import-panel" hidden aria-label="Import progress"><div class="import-heading"><strong id="import-title">Reading your image…</strong><button id="dismiss-import" class="text-button" hidden>Dismiss</button></div><div id="import-items" aria-live="polite"></div></section>
+    <div class="library-toolbar"><div class="library-heading"><h2 id="view-title">All styles</h2><span id="view-count"></span></div><label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input type="search" id="search" placeholder="Search styles, tags or keywords" aria-label="Search styles, tags or keywords"></label></div>
+    <div id="load-error" role="alert" hidden></div><section id="gallery" class="gallery" aria-label="Style library"></section><div id="empty-state" class="empty-state" hidden><h3>No styles here yet.</h3><p id="empty-copy">Import an image to start your collection.</p></div>
+    <footer><span>Collect what catches your eye.</span><span id="total-references">0 references saved</span></footer>
+  </main>
+  <dialog id="style-dialog" aria-labelledby="style-title"><div class="dialog-header dialog-header-bare"><button class="icon-button" id="close-style" aria-label="Close collection"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div id="style-content"></div></dialog>
+  <dialog id="lightbox" aria-label="Enlarged reference"><img id="lightbox-image" alt=""></dialog>
+  <dialog id="edit-dialog"><form id="style-form"><div class="dialog-header"><h2 id="form-title">Add an empty style</h2><button class="icon-button" type="button" id="close-edit" aria-label="Close form">×</button></div><p class="form-intro">A place for a visual direction you want to explore.</p><label>Style name<input name="name" required maxlength="80" placeholder="e.g. Felt stop-motion"></label><label>Search keywords<textarea name="keywords" required rows="3" placeholder="needle felt animation, wool characters, felt puppets"></textarea></label><p class="field-hint">Separate keywords with commas. Up to 8.</p><label>Visual tags<input name="tags" placeholder="layered paper, grainy texture, soft shadows"></label><p class="field-hint">Separate tags with commas. Up to 12. Tags connect related styles.</p><p id="form-error" role="alert"></p><button type="submit" class="primary">Save style</button></form></dialog>
+  <div id="modal-veil" class="modal-veil" hidden aria-hidden="true"></div>
+  <div id="drop-layer" class="drop-layer" hidden aria-hidden="true"><span>Drop to add to your library</span></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body></html>

@@ -1,0 +1,17 @@
+{
+  "name": "artbook",
+  "version": "1.0.0",
+  "description": "A local visual-style reference library: collect images, identify their art style, and find more like them.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "start:network": "node server.mjs --network",
+    "test": "node --test",
+    "check": "node --check server.mjs && node --check lib.mjs && node --check ai-origin.mjs && node --check network-access.mjs && node --check public/app.js && node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

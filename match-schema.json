@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "existingStyleId": { "type": ["string", "null"] },
+    "confidence": { "type": "string", "enum": ["high", "medium", "low"] }
+  },
+  "required": ["existingStyleId", "confidence"]
+}
