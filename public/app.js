@@ -186,6 +186,7 @@ function referencePanel(style) {
       <div class="section-head"><h3 id="image-section-title">This image</h3>${count > 1 ? `<span class="section-meta"><span id="panel-index">1</span> of ${count}</span>` : ''}</div>
       <p id="image-ai" class="ai-origin" hidden></p>
       <div class="image-info"><h4 id="image-name"></h4><p id="image-description"></p><a id="image-source" class="image-source" target="_blank" rel="noopener noreferrer" hidden></a></div>
+      <div id="image-palette" class="image-palette" role="list" aria-label="Color palette" hidden></div>
       <div id="image-prompts" class="image-prompts">
         <div class="prompt-tabs"><div role="tablist" aria-label="Generation prompts">
           <button role="tab" id="tab-image-prompt" data-prompt-tab="image-prompt" aria-controls="panel-image-prompt">Similar image</button>
@@ -264,6 +265,7 @@ function selectImage(index) {
   $('#prompts-missing').hidden = !$('#image-prompts').hidden;
   document.querySelectorAll('[data-prompt-tab]').forEach(tab => { tab.hidden = !$(`#${tab.dataset.promptTab}`).textContent; });
   showPromptTab(promptTab);
+  showPalette();
   markAnalyzing();
   $('#reidentify-status').textContent = ''; $('#move-error').textContent = '';
   resetDelete();
@@ -347,7 +349,7 @@ function edgeFill(img) {
       r += data[i] * w; g += data[i + 1] * w; b += data[i + 2] * w; weight += w;
     }
     const tint = `rgb(${Math.round(r / weight)} ${Math.round(g / weight)} ${Math.round(b / weight)})`;
-    edgeFills.set(key, { left: along('left'), right: along('right'), top: along('top'), bottom: along('bottom'), tint });
+    edgeFills.set(key, { left: along('left'), right: along('right'), top: along('top'), bottom: along('bottom'), tint, palette: paletteOf(data) });
   }
   const slide = img.closest('.hero-slide');
   const fill = edgeFills.get(key);
@@ -361,6 +363,57 @@ function edgeFill(img) {
     ? `${ramp(fill.left, '180deg')} left / 50% 100% no-repeat, ${ramp(fill.right, '180deg')} right / 50% 100% no-repeat`
     : `${ramp(fill.top, '90deg')} top / 100% 50% no-repeat, ${ramp(fill.bottom, '90deg')} bottom / 100% 50% no-repeat`;
 }
+// Palette: up to ten clearly different colors, most prominent first. Pixels are grouped into small color cubes;
+// cubes are ranked by coverage with a boost for saturation, so a small vivid accent is not lost to large neutral
+// areas; then each cube joins the first chosen color it is close to (redmean distance) or becomes a new one.
+function paletteOf(data) {
+  const cubes = new Map(); let total = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) continue;
+    const q = (data[i] >> 4) << 8 | (data[i + 1] >> 4) << 4 | (data[i + 2] >> 4);
+    const cube = cubes.get(q) || { n: 0, sum: [0, 0, 0] };
+    cube.n++; for (let k = 0; k < 3; k++) cube.sum[k] += data[i + k];
+    cubes.set(q, cube); total++;
+  }
+  const distance = (a, b) => {
+    const r = (a[0] + b[0]) / 2, dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+    return Math.sqrt((2 + r / 256) * dr * dr + 4 * dg * dg + (2 + (255 - r) / 256) * db * db);
+  };
+  const ranked = [...cubes.values()].map(cube => {
+    const color = cube.sum.map(v => v / cube.n), max = Math.max(...color), min = Math.min(...color);
+    return { ...cube, color, score: cube.n * (0.5 + (max ? (max - min) / max : 0)) };
+  }).sort((a, z) => z.score - a.score);
+  const chosen = [];
+  for (const cube of ranked) {
+    const near = chosen.find(c => distance(c.color, cube.color) < 60);
+    if (near) { near.n += cube.n; for (let k = 0; k < 3; k++) near.sum[k] += cube.sum[k]; }
+    else if (chosen.length < 10) chosen.push({ n: cube.n, sum: [...cube.sum], color: cube.color });
+  }
+  const hex = sum => n => '#' + sum.map(v => Math.round(v / n).toString(16).padStart(2, '0')).join('').toUpperCase();
+  return chosen.filter(c => c.n / total >= 0.01).sort((a, z) => z.n - a.n).map(c => ({ hex: hex(c.sum)(c.n), share: c.n / total }));
+}
+// Shows the palette of the selected image as small blocks; each copies its hex code,
+// once its slide has loaded and been sampled.
+function showPalette() {
+  const box = $('#image-palette'); if (!box) return;
+  const style = styles.find(s => s.id === selectedStyle);
+  const img = document.querySelectorAll('.hero-slide img')[style?.images.indexOf(selectedImage) ?? -1];
+  const palette = img && edgeFills.get(img.currentSrc || img.src)?.palette;
+  box.hidden = !palette?.length;
+  if (box.hidden) return;
+  if (box.dataset.colors === palette.map(c => c.hex).join()) return;
+  box.dataset.colors = palette.map(c => c.hex).join();
+  // Built with DOM calls: the page's CSP blocks inline style attributes, but not styles set from script.
+  box.replaceChildren(...palette.map(({ hex, share }) => {
+    const swatch = document.createElement('button');
+    swatch.className = 'swatch'; swatch.setAttribute('role', 'listitem');
+    swatch.setAttribute('aria-label', `Copy ${hex}, about ${Math.max(1, Math.round(share * 100))}% of the image`);
+    swatch.title = `${hex} · ${Math.max(1, Math.round(share * 100))}%`;
+    swatch.style.setProperty('background', hex);
+    swatch.onclick = async () => { try { await copyText(hex); toast(`${hex} copied.`); } catch { toast('Select the color code and copy it manually.'); } };
+    return swatch;
+  }));
+}
 // Washes the whole style modal with a light version of the current image's color.
 function applyTint() {
   const img = document.querySelectorAll('.hero-slide img')[heroIndex];
@@ -373,7 +426,7 @@ function applyTint() {
 function paintSlides() {
   applyTint();
   document.querySelectorAll('.hero-slide img').forEach(img => {
-    const paint = () => { try { edgeFill(img); applyTint(); } catch {} };
+    const paint = () => { try { edgeFill(img); applyTint(); showPalette(); } catch {} };
     if (img.complete && img.naturalWidth) paint(); else img.addEventListener('load', paint, { once: true });
   });
 }
