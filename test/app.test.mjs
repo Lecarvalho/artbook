@@ -4,7 +4,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLibrary, validateStyle } from '../lib.mjs';
-import { makeApp } from '../server.mjs';
+import { makeApp, refinementPrompt } from '../server.mjs';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=', 'base64');
 const variant = n => Buffer.concat([png, Buffer.from([n])]); // same valid PNG header, distinct bytes and hash
@@ -311,4 +311,30 @@ test('test generations retry once below the target, keep both attempts and their
   assert.equal((await fetch(`${base}/api/images/${image.id}/generations/${kept[0].id}`, { method: 'DELETE', headers })).status, 400);
   assert.equal((await fetch(`${base}/api/images/${image.id}`, { method: 'DELETE', headers })).status, 200);
   assert.equal((await generatedFiles()).length, 0);
+});
+
+test('a refinement sees every attempt and asks for one new prompt', () => {
+  const scores = value => ({ palette: value, linework: value, rendering: value, texture: value, lighting: value, shapes: value });
+  const attempts = [
+    { prompt: '[a fox] first wording', similarity: 70, scores: scores(70), change: null, differences: ['thin uniform contours'], strengths: ['warm ochre washes'] },
+    { prompt: '[a fox] second wording', similarity: 64, scores: scores(64), change: 'cooler shadows', basedOn: 0, differences: ['shadows too blue'], strengths: [] },
+    { prompt: '[a fox] third wording', similarity: 59, scores: scores(59), change: 'flatter fills', basedOn: 1, differences: ['thin uniform contours', 'no paper grain'], strengths: ['clean silhouettes'] },
+  ];
+  const text = refinementPrompt(attempts[2].prompt, { ...attempts[2], index: 2 }, attempts);
+  // Earlier attempts bring their own critique, scores and lineage, not only a score.
+  assert.match(text, /Attempt 1: 70% \(palette 70, linework 70, rendering 70, texture 70, lighting 70, shapes 70\), first prompt\n {2}difference: thin uniform contours\n {2}strength: warm ochre washes/);
+  assert.match(text, /Attempt 2: 64% .*built from attempt 1; change: cooler shadows\n {2}difference: shadows too blue/);
+  assert.match(text, /Attempt 3: 59% .*built from attempt 2; change: flatter fills\n {2}\(the attempt being reworked/);
+  // The best attempt's prompt is offered as a reference; the reworked prompt stays the one to rewrite.
+  assert.match(text, /Best attempt so far is attempt 1 \(70%\)[^\n]*\n"""\n\[a fox\] first wording\n"""/);
+  assert.match(text, /Current prompt:\n"""\n\[a fox\] third wording\n"""$/);
+  assert.match(text, /persistent: fix them first/);
+  assert.match(text, /Never reintroduce a difference/);
+  assert.match(text, /one complete new prompt/);
+  assert.match(text, /positive description of the target look/);
+  // A first refinement has no history block and no reference prompt.
+  const first = refinementPrompt(attempts[0].prompt, attempts[0], [attempts[0]]);
+  assert.doesNotMatch(first, /All attempts|Best attempt/);
+  // When the reworked attempt is already the best, no reference prompt is added.
+  assert.doesNotMatch(refinementPrompt(attempts[0].prompt, { ...attempts[0], index: 0 }, attempts), /Best attempt/);
 });
