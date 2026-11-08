@@ -683,17 +683,38 @@ dialog{border-radius:8px}
 /* Test generations: a row under the "Same style, new subject" prompt (button, progress or a strip of saved tests),
    and a dialog per test with the original, the attempts and the reasoning. */
 .generate-row{display:grid;gap:12px;margin-top:6px;flex:none}
-.generate-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 16px}
-.subject-field{display:flex;align-items:center;gap:10px;flex:1 1 220px;min-width:0}
-.subject-field span{font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);flex:none}
+/* Test form: labels in one column, controls in the next (stacked on phones); the action sits under the controls. */
+.generate-bar{display:grid;grid-template-columns:max-content minmax(0,1fr) auto;align-items:center;gap:12px 18px}
+.generate-bar #test-subject{grid-column:2 / -1}
+.test-field{display:contents}
+.test-label{font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.segmented{display:flex;justify-self:start;max-width:100%;padding:3px;gap:2px;border-radius:8px;background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.segmented label{position:relative;flex:1 1 auto;min-width:0}
+.segmented input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.segmented span{display:block;padding:6px 12px;border-radius:6px;font-size:12.5px;line-height:1.3;color:var(--muted);text-align:center;white-space:nowrap;transition:background-color .15s,color .15s}
+.segmented label:hover span{color:var(--ink)}
+.segmented input:checked+span{background:var(--surface);color:var(--ink);font-weight:500;box-shadow:0 1px 2px #0b100e1f,0 0 0 1px #0b100e0d}
+.segmented input:focus-visible+span{outline:2px solid var(--ink);outline-offset:1px}
+.segmented input:disabled{cursor:wait}
+/* Same compact primary as "Try again" in the test view. */
+.generate-bar .test-button{grid-column:3;justify-self:end;min-height:36px;padding:8px 16px;gap:8px}
+/* In a narrow panel the action drops under the choice instead of squeezing it. */
+.generate-row{container-type:inline-size}
+@container (max-width:520px){.generate-bar .test-button{grid-column:2 / -1;justify-self:start}}
+@media(max-width:700px){
+  .generate-bar{grid-template-columns:minmax(0,1fr);gap:6px}
+  .test-field+.test-field .test-label{margin-top:8px}
+  .segmented{justify-self:stretch}
+  .segmented span{padding:7px 8px;font-size:12px}
+  .generate-bar #test-subject{grid-column:1}
+  .generate-bar .test-button{grid-column:1;justify-self:stretch;margin-top:10px}
+}
 #test-subject{flex:1;min-width:0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;padding:5px 0;font-size:13px;color:var(--ink)}
 #test-subject::placeholder{color:var(--muted)}
 #test-subject:hover{border-bottom-color:color-mix(in srgb,var(--ink) 30%,transparent)}
 #test-subject:focus-visible{outline:none;border-bottom-color:var(--ink)}
 .prompt-slot.edited{color:var(--ink);font-weight:500}
-.test-button{display:inline-flex;align-items:center;gap:6px;min-height:32px;color:var(--ink);font-size:13px;white-space:nowrap}
 .test-button .icon{width:16px;height:16px}
-.test-button:disabled{opacity:1;color:var(--muted);text-decoration:none}
 .generate-progress{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:10px;font-size:12px;line-height:1.5;color:var(--ink)}
 .generate-progress.failed{color:var(--danger)}
 .generate-thought{flex:1 1 100%;color:var(--muted);font-size:12px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -801,6 +822,34 @@ dialog{border-radius:8px}
 .retry-box .step-dots{margin:0}
 .retry-button{min-height:36px;padding:8px 16px;gap:8px}
 .retry-button .icon{width:16px;height:16px}
+/* Watching a drawing: the drawing so far covers the reference while a drawing test runs; one tap shows the original. */
+.hero-live{position:absolute;inset:0;z-index:4;display:grid;place-items:center;background:var(--paper)}
+.hero-live img{width:100%;height:100%;object-fit:contain}
+.hero-live.peek{background:transparent;pointer-events:none}
+.hero-live.peek img{visibility:hidden}
+.hero-live-bar{position:absolute;left:16px;right:16px;bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}
+.hero-live-label,.hero-live-toggle{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;min-height:30px;padding:0 11px;border-radius:5px;background:#0b100ebf;color:#f3f1ea;font-size:12px;border:0}
+.hero-live-label::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 1.2s ease-in-out infinite}
+.hero-live-toggle{cursor:pointer}
+.hero-live-toggle:hover{background:#0b100ee6}
+@media (prefers-reduced-motion:reduce){.hero-live-label::before{animation:none}}
+.process-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.process .process-head h3{margin:0}
+/* Drawings: a small tag on the attempt, and the process strip that replays its stages. */
+.vector-tag{font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.process{margin-top:18px}
+.process h3{margin:0 0 8px;font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.process-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.process-step{display:grid;gap:6px;padding:0;border:0;background:none;text-align:left;font-size:12px;color:var(--muted);cursor:pointer;min-width:0}
+.process-thumb{display:block;border-radius:4px;overflow:hidden;background:#22332b0d;outline:1px solid transparent;outline-offset:2px}
+.process-thumb img{display:block;width:100%;aspect-ratio:3/2;object-fit:contain}
+.process-step:hover{color:var(--ink)}
+.process-step[aria-pressed=true]{color:var(--ink);font-weight:500}
+.process-step[aria-pressed=true] .process-thumb{outline-color:var(--ink)}
+.process-note{margin:10px 0 0;font-size:13px;line-height:1.6;color:var(--muted);max-width:640px;min-height:1.6em}
+.live-drawing{margin:0}
+.live-drawing .attempt-image{cursor:default}
+@media(max-width:700px){.process-strip{gap:6px}.process-step{font-size:11px}}
 /* Identification check: below the test, its own section; each proposal shows the change, its confidence and reason. */
 .review-box{margin-top:28px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;line-height:1.6}
 .review-box>h3{margin:0 0 6px;font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
@@ -840,9 +889,9 @@ dialog{border-radius:8px}
 .review-start{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px}
 .review-start .retry-status:empty+*{margin-left:0}
 @media(min-width:900px){
-  .style-info .image-prompts:has(#generate-row:not([hidden])){min-height:190px}
-  .style-info .image-prompts:has(#generate-row:not([hidden]) :is(#tests,#generate-progress):not([hidden])){min-height:240px}
-  .style-info .image-prompts:has(#generate-row:not([hidden]) #tests:not([hidden])):has(#generate-progress:not([hidden])){min-height:280px}
+  .style-info .image-prompts:has(#generate-row:not([hidden])){min-height:284px}
+  .style-info .image-prompts:has(#generate-row:not([hidden]) :is(#tests,#generate-progress):not([hidden])){min-height:334px}
+  .style-info .image-prompts:has(#generate-row:not([hidden]) #tests:not([hidden])):has(#generate-progress:not([hidden])){min-height:374px}
 }
 @media(max-width:700px){
   .generation-compare{gap:10px}

@@ -196,8 +196,15 @@ function referencePanel(style) {
         <div class="prompt-block" role="tabpanel" id="panel-image-prompt" aria-labelledby="tab-image-prompt"><p id="image-prompt"></p><p class="prompt-colors" hidden></p></div>
         <div class="prompt-block" role="tabpanel" id="panel-style-prompt" aria-labelledby="tab-style-prompt"><p id="style-prompt"></p><p class="prompt-colors" hidden></p></div>
         <div class="generate-row" id="generate-row">
-          <div class="generate-bar"><label class="subject-field" id="subject-field"><span>Subject</span><input type="text" id="test-subject" autocomplete="off" spellcheck="false" maxlength="200" placeholder="Your subject"></label>
-            <button class="text-button test-button" id="generate-style" title="Uses the prompt only, not this image. Takes a few minutes and uses your Codex allowance."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.4A2 2 0 0 0 7.3 20.5h9.4a2 2 0 0 0 1.7-3.1l-4.9-8.7V3.5M7.8 14h8.4"/></svg><span id="generate-label">Test this prompt</span></button></div>
+          <div class="generate-bar">
+            <label class="test-field" id="subject-field"><span class="test-label">Subject</span><input type="text" id="test-subject" autocomplete="off" spellcheck="false" maxlength="200" placeholder="Your subject"></label>
+            <div class="test-field"><span class="test-label" id="test-mode-label">Test as</span>
+              <div class="segmented" id="test-mode" role="radiogroup" aria-labelledby="test-mode-label">
+                <label><input type="radio" name="test-mode" value="image" checked><span>Image</span></label>
+                <label><input type="radio" name="test-mode" value="claude"><span>SVG · Claude</span></label>
+                <label><input type="radio" name="test-mode" value="codex"><span>SVG · Codex</span></label>
+              </div></div>
+            <button class="primary test-button" id="generate-style" title="Uses the prompt only, not this image. Takes a few minutes and uses your Codex allowance."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.4A2 2 0 0 0 7.3 20.5h9.4a2 2 0 0 0 1.7-3.1l-4.9-8.7V3.5M7.8 14h8.4"/></svg><span id="generate-label">Test this prompt</span></button></div>
           <div class="generate-progress" id="generate-progress" hidden><span id="generate-status" role="status"></span><span class="step-dots" id="step-dots" aria-hidden="true">${'<i></i>'.repeat(5)}</span><span class="generate-thought" id="generate-thought" hidden></span></div>
           <div class="tests" id="tests" hidden><p class="tests-label">Tests</p><div id="generations" class="generations" role="group" aria-label="Test generations"></div></div>
         </div>
@@ -220,6 +227,7 @@ function heroCarousel(style) {
       <div class="hero-track" tabindex="0" aria-live="polite">${style.images.map((i, n) => `<button class="hero-slide" data-zoom="${n}" aria-roledescription="slide" aria-haspopup="dialog" aria-label="Reference ${n + 1} of ${count}. Select to view larger"><img src="${imageURL(i)}" alt="${escape(i.originalName)}" ${n > 1 ? 'loading="lazy"' : ''}></button>`).join('')}</div>
       ${many ? '<button class="hero-nav hero-prev" data-step="-1" aria-label="Previous reference"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></button><button class="hero-nav hero-next" data-step="1" aria-label="Next reference"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></button>' : ''}
       <span class="hero-status" aria-hidden="true"><span class="import-pulse"></span>Identifying style…</span>
+      <div class="hero-live" id="hero-live" hidden><img id="hero-live-art" alt="The drawing so far"><div class="hero-live-bar"><span class="hero-live-label" id="hero-live-label" role="status"></span><button class="hero-live-toggle" id="hero-live-toggle">Show original</button></div></div>
     </div>
     </div>
   </section>`;
@@ -272,6 +280,7 @@ function selectImage(index) {
   // The subject field starts with the prompt's example subject; editing it rewrites the [slot], so Copy and Test use it.
   const subject = (image.stylePrompt || '').match(/\[([^\]]*)\]/)?.[1] || '';
   if ($('#test-subject')) { $('#test-subject').value = subject; $('#test-subject').dataset.original = subject; $('#subject-field').hidden = !subject; }
+  if ($('#test-mode')) { let saved = null; try { saved = localStorage.getItem('artbook-test-mode'); } catch {} const choice = $(`input[name="test-mode"][value="${['image', 'claude', 'codex'].includes(saved) ? saved : 'image'}"]`); if (choice) choice.checked = true; }
   $('#image-prompts').hidden = !image.imagePrompt && !image.stylePrompt;
   $('#prompts-missing').hidden = !$('#image-prompts').hidden;
   document.querySelectorAll('[data-prompt-tab]').forEach(tab => { tab.hidden = !$(`#${tab.dataset.promptTab}`).textContent; });
@@ -727,7 +736,8 @@ async function pollJobs() {
   if (polling) return; polling = true;
   try {
     while (trackedJobs().length) {
-      await new Promise(r => setTimeout(r, 1200));
+      // A drawing in progress is polled faster so it can be watched as it grows.
+      await new Promise(r => setTimeout(r, [...liveJobs.values()].some(s => s.mode === 'vector' && s.status === 'running') ? 600 : 1200));
       const list = trackedJobs(); if (!list.length) break;
       try {
         const states = await api(`/api/jobs?ids=${list.map(j => encodeURIComponent(j.id)).join(',')}`);
@@ -976,7 +986,13 @@ function reidentifyImage() {
 const stylePromptOf = prompt => prompt.replace(/\s*Color palette:[^]*$/i, '').trim().replace(/\s+/g, ' ').slice(0, 1500);
 const promptText = panel => [...panel.querySelectorAll(':scope > p:not(.field-hint):not([hidden])')].map(p => p.textContent).filter(Boolean).join('\n\n');
 const GENERATE_STEPS = { queued: 'Waiting in line…', running: 'Setting up…', 'generate-1': 'Painting from the prompt…', 'judge-1': 'Critiquing it against the original…', recalibrate: 'Low match. Reworking the prompt…', 'generate-2': 'Painting a second study…', 'judge-2': 'Critiquing the second study…',
-  'retry-recalibrate': 'Reworking the prompt from the last critique…', 'generate-retry': 'Painting a new study…', 'judge-retry': 'Critiquing it against the original…' };
+  'retry-recalibrate': 'Reworking the prompt from the last critique…', 'generate-retry': 'Painting a new study…', 'judge-retry': 'Critiquing it against the original…',
+  'draw-1': 'Sketching the structure…', 'draw-2': 'Laying in color and tone…', 'draw-3': 'Drawing line and detail…', 'draw-4': 'Checking and finishing…', 'judge-vector': 'Critiquing it against the original…',
+  'draw-revise': 'Revising the drawing from the critique…', 'judge-revise': 'Critiquing the revision…' };
+const DRAWER_NAMES = { claude: 'Claude', codex: 'Codex' };
+// The last "Test as" choice is a per-viewer convenience.
+const testMode = () => $('input[name="test-mode"]:checked')?.value || 'image';
+document.addEventListener('change', event => { if (event.target.name === 'test-mode') { try { localStorage.setItem('artbook-test-mode', event.target.value); } catch {} markGenerating(); } });
 const TRAIT_LABELS = { palette: 'Palette', linework: 'Linework', rendering: 'Rendering', texture: 'Texture', lighting: 'Lighting', shapes: 'Shapes' };
 document.addEventListener('input', event => {
   if (event.target.id !== 'test-subject') return;
@@ -992,17 +1008,22 @@ function generateFromPrompt() {
   const image = selectedImage; if (!image || generating.has(image.id)) return;
   const prompt = promptText($('#panel-style-prompt'));
   if (!prompt) return toast('This image has no style prompt yet. Re-identify it first.');
+  const mode = testMode(), vector = mode !== 'image';
   generateErrors.delete(image.id); generating.set(image.id, 'queued'); markGenerating();
   sendJob({ id: newJobId(), kind: 'generate', imageId: image.id, live: true }, '/api/generate',
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: image.id, prompt }) });
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: image.id, prompt, ...(vector ? { mode: 'vector', drawer: mode } : {}) }) });
 }
 // Server steps in order; the progress dots fill as each one finishes.
 const STEP_ORDER = ['generate-1', 'judge-1', 'recalibrate', 'generate-2', 'judge-2'];
 const RETRY_ORDER = ['retry-recalibrate', 'generate-retry', 'judge-retry'];
+const VECTOR_ORDER = ['draw-1', 'draw-2', 'draw-3', 'draw-4', 'judge-vector'];
+const REVISE_ORDER = ['draw-revise', 'judge-revise'];
+// The dots follow the kind of run the step belongs to.
+const orderFor = (state, retry) => [VECTOR_ORDER, REVISE_ORDER, RETRY_ORDER, STEP_ORDER].find(order => order.includes(state)) || (retry ? RETRY_ORDER : STEP_ORDER);
 // Fills a .step-dots element for the given step: one dot per step of that kind of run.
 const dotsFor = (order, at) => order.map((_, n) => `<i class="${n < at ? 'done' : n === at ? 'current' : ''}"></i>`).join('');
 function stepDots(box, state, retry) {
-  const order = retry ? RETRY_ORDER : STEP_ORDER, at = order.indexOf(state);
+  const order = orderFor(state, retry);
   box.hidden = !state;
   box.innerHTML = dotsFor(order, order.indexOf(state));
 }
@@ -1012,6 +1033,9 @@ function markGenerating() {
   const failure = !state && selectedImage ? generateErrors.get(selectedImage.id) : null;
   button.disabled = !!state || !selectedImage?.stylePrompt;
   $('#generate-label').textContent = state === 'queued' ? 'Queued' : state ? 'Testing…' : 'Test this prompt';
+  const mode = testMode();
+  $('#generate-style').title = mode === 'image' ? 'Uses the prompt only, not this image. Takes a few minutes and uses your Codex allowance.'
+    : `${DRAWER_NAMES[mode]} draws the style as vector code from the prompt only, in four stages, then Codex compares it with this image. Takes several minutes and uses your ${DRAWER_NAMES[mode]} and Codex allowance.`;
   $('#generate-progress').hidden = !state && !failure;
   $('#generate-progress').classList.toggle('failed', !!failure);
   $('#generate-status').textContent = state ? GENERATE_STEPS[state] || 'Working…' : failure || '';
@@ -1021,6 +1045,7 @@ function markGenerating() {
   const thought = live?.log?.at(-1)?.text || '';
   $('#generate-thought').textContent = first + thought;
   $('#generate-thought').hidden = !(first || thought);
+  renderHeroLive();
   if (generationOpen()) renderRetryStatus();
 }
 // Refreshes the details of the selected image in place (after the library changed) without rebuilding the carousel.
@@ -1047,6 +1072,9 @@ const ICONS = {
   trash: '<path d="M4.5 7h15M10 4h4M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/>',
   retry: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v3.8h-3.8"/>',
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  download: '<path d="M12 4.5v10M7.5 10.5l4.5 4.5 4.5-4.5M5 19.5h14"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z"/>',
+  stop: '<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
   search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>'
 };
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -1069,16 +1097,17 @@ function renderGenerationDialog() {
   const change = a.change || (n === 1 ? g.recalibration : null); // tests saved before per-attempt notes kept one note on the test
   $('#generation-title').textContent = `Test generation · ${date}`;
   $('#generation-content').innerHTML = `
-    <p class="form-intro">Painted from the prompt alone, then held against the original. Match is the mean of six trait scores.</p>
+    <p class="form-intro">${g.mode === 'vector' ? `Drawn as vector code${DRAWER_NAMES[g.drawer] ? ` by ${DRAWER_NAMES[g.drawer]}` : ''} from the prompt alone, in four stages, then held against the original.` : 'Painted from the prompt alone, then held against the original.'} Match is the mean of six trait scores.</p>
     <div class="attempt-tabs" role="tablist" aria-label="Attempts">${g.attempts.map((x, i) => `<button role="tab" id="attempt-tab-${i}" aria-controls="attempt-panel" aria-selected="${!live && i === n}" tabindex="${!live && i === n ? 0 : -1}" data-attempt="${i}">
       <span>Attempt ${i + 1}</span><strong class="${x.similarity >= target ? '' : 'match-low'}">${x.similarity}%</strong>${i === best && g.attempts.length > 1 ? '<em>Best</em>' : ''}</button>`).join('')}
       <button role="tab" class="attempt-pending" id="attempt-tab-live" aria-controls="attempt-panel" aria-selected="${live}" tabindex="${live ? 0 : -1}" data-attempt="live" hidden><span>Attempt ${g.attempts.length + 1}</span><i></i></button></div>
     <div id="attempt-panel" role="tabpanel" aria-labelledby="attempt-tab-${live ? 'live' : n}">${live ? '<div class="live-attempt" id="live-attempt"></div>' : `
       <div class="generation-compare">
         <figure class="attempt"><button class="attempt-image" data-generated aria-label="View the original larger"><img src="${imageURL(selectedImage)}" alt="Original reference"></button><figcaption><strong>Original</strong></figcaption></figure>
-        <figure class="attempt"><button class="attempt-image" data-generated aria-label="View attempt ${n + 1} larger"><img src="/images/generated/${escape(a.filename)}" alt="Generated in attempt ${n + 1}"></button>
-          <figcaption><strong class="${a.similarity >= target ? '' : 'match-low'}">${a.similarity}% style match</strong>${before ? `<span>${signed(a.similarity - before.similarity)} from attempt ${base + 1}</span>` : '<span>Prompt as written</span>'}</figcaption></figure>
+        <figure class="attempt"><button class="attempt-image" data-generated aria-label="View attempt ${n + 1} larger"><img id="attempt-art" src="/images/generated/${escape(a.filename)}" alt="${a.kind === 'vector' ? 'Drawn' : 'Generated'} in attempt ${n + 1}"></button>
+          <figcaption><strong class="${a.similarity >= target ? '' : 'match-low'}">${a.similarity}% style match</strong>${before ? `<span>${signed(a.similarity - before.similarity)} from attempt ${base + 1}</span>` : '<span>Prompt as written</span>'}${a.kind === 'vector' ? `<span class="vector-tag">Vector${DRAWER_NAMES[a.drawer] ? ` · ${DRAWER_NAMES[a.drawer]}` : ''}</span>` : ''}</figcaption></figure>
       </div>
+      ${a.stages?.length > 1 ? processStrip(a) : ''}
       ${n === g.attempts.length - 1 && g.error ? `<p class="error">${escape(g.error)}</p>` : ''}
       <div class="generation-notes">
         <section>
@@ -1096,6 +1125,7 @@ function renderGenerationDialog() {
           <details><summary>Prompt used</summary><p class="generation-prompt">${escape(a.prompt)}</p></details>
           <div class="attempt-actions">
             <button class="text-button dialog-action" data-copy-generation="${n}">${icon('copy')}Copy prompt</button>
+            ${a.kind === 'vector' ? `<a class="text-button dialog-action" href="/images/generated/${escape(a.svg)}" download="artbook-drawing-${n + 1}.svg">${icon('download')}Download SVG</a>` : ''}
             ${applied ? `<span class="dialog-action generation-applied">${icon('check')}This is the style prompt</span>`
               : `<button class="text-button dialog-action" data-use-prompt="${n}">${icon('check')}Use as style prompt</button>`}
           </div>
@@ -1112,11 +1142,126 @@ function renderGenerationDialog() {
   renderReview();
   $('#generation-content').querySelectorAll('.generation-prompt').forEach(colorCodes);
 }
+// A staged drawing's process: one thumbnail per stage; choosing one shows that stage in place of the finished drawing.
+const STAGE_LABELS = ['Sketch', 'Color and tone', 'Line and detail', 'Finish'];
+function processStrip(a) {
+  const last = a.stages.length - 1;
+  return `<section class="process" aria-labelledby="process-title">
+      <div class="process-head"><h3 id="process-title">Process</h3>${a.svg ? `<button class="text-button dialog-action" id="play-drawing">${icon('play')}<span>Play</span></button>` : ''}</div>
+      <div class="process-strip" role="group" aria-label="Drawing stages">${a.stages.map((st, i) => `<button class="process-step" data-stage="${i}" aria-pressed="${i === last}"><span class="process-thumb"><img src="/images/generated/${escape(st.render || st.filename)}" alt="" loading="lazy"></span><span>${i + 1} · ${STAGE_LABELS[i] || `Stage ${i + 1}`}</span></button>`).join('')}</div>
+      <p class="process-note" id="process-note">${escape(a.stages[last].note || '')}</p>
+    </section>`;
+}
+function showStage(button, attempt) {
+  const stage = attempt.stages[Number(button.dataset.stage)]; if (!stage) return;
+  $('#attempt-art').src = `/images/generated/${stage.render || stage.filename}`;
+  $('#process-note').textContent = stage.note || '';
+  button.parentElement.querySelectorAll('.process-step').forEach(b => b.setAttribute('aria-pressed', b === button));
+}
+// ---- Watching a drawing ----
+// While a drawing test runs, the drawing so far (finished layers plus the complete part of the layer being written)
+// is fetched as an image whenever its version changes, and shown over the reference and in the live tab.
+const LAYER_ORDER = ['sketch', 'color', 'line', 'finish'];
+const liveArt = { job: null, version: 0, url: null, loading: false };
+async function refreshLiveArt(live) {
+  if (live?.mode !== 'vector' || !live.liveVersion) return;
+  if (liveArt.job !== live.id) { if (liveArt.url) URL.revokeObjectURL(liveArt.url); Object.assign(liveArt, { job: live.id, version: 0, url: null }); }
+  if (liveArt.loading || live.liveVersion === liveArt.version) return paintLiveArt();
+  liveArt.loading = true;
+  try {
+    const response = await fetch(`/api/jobs/${encodeURIComponent(live.id)}/drawing`);
+    if (response.ok) {
+      const url = URL.createObjectURL(await response.blob()), img = new Image();
+      img.src = url; await img.decode().catch(() => {});
+      if (liveArt.job === live.id) { if (liveArt.url) URL.revokeObjectURL(liveArt.url); liveArt.url = url; liveArt.version = live.liveVersion; } else URL.revokeObjectURL(url);
+    }
+  } catch {} finally { liveArt.loading = false; }
+  paintLiveArt();
+}
+function paintLiveArt() {
+  if (!liveArt.url) return;
+  for (const el of [$('#hero-live-art'), $('#live-art')]) if (el && el.src !== liveArt.url) el.src = liveArt.url;
+}
+const layerStep = layer => { const n = LAYER_ORDER.indexOf(layer); return n < 0 ? '' : ` · ${n + 1}/4 ${STAGE_LABELS[n]}`; };
+let heroPeek = null; // job id whose live drawing the viewer set aside to see the original
+function renderHeroLive() {
+  const box = $('#hero-live'); if (!box || !selectedImage) return;
+  const running = generating.get(selectedImage.id);
+  const live = running && !retrying.has(selectedImage.id) ? liveJobs.get(selectedImage.id) : null;
+  box.hidden = !(live?.mode === 'vector' && live.liveVersion);
+  if (box.hidden) return;
+  const peek = heroPeek === live.id;
+  box.classList.toggle('peek', peek);
+  $('#hero-live-label').textContent = `Drawing live${layerStep(live.liveLayer)}`;
+  $('#hero-live-toggle').textContent = peek ? 'Show drawing' : 'Show original';
+  refreshLiveArt(live);
+}
+document.addEventListener('click', event => {
+  if (!event.target.closest('#hero-live-toggle')) return;
+  const live = selectedImage && liveJobs.get(selectedImage.id);
+  heroPeek = heroPeek === live?.id ? null : live?.id ?? null;
+  renderHeroLive();
+});
+
+// Replay: the finished drawing rebuilt shape by shape, in the order it was drawn, layer after layer.
+let replay = null;
+async function playDrawing(attempt) {
+  if (replay) return replay.stop();
+  if (!attempt?.svg) return;
+  let text;
+  try { text = await (await fetch(`/images/generated/${attempt.svg}`)).text(); } catch { return toast('The drawing could not be loaded.'); }
+  const svg = new DOMParser().parseFromString(text, 'image/svg+xml').documentElement;
+  if (svg.nodeName !== 'svg') return toast('The drawing could not be loaded.');
+  // Every visible shape, in drawing order, wherever it sits (groups stay; shapes inside defs, symbols or patterns are not steps).
+  const SHAPES = 'path,line,polyline,polygon,rect,circle,ellipse,use';
+  const units = [...svg.querySelectorAll(SHAPES)].filter(el => !el.closest('defs,symbol,pattern,clipPath,mask,marker'))
+    .map(el => ({ el, layer: el.closest('[id^="layer-"]')?.id.slice(6) || null, display: el.getAttribute('display') }));
+  if (!units.length) return;
+  units.forEach(u => u.el.setAttribute('display', 'none'));
+  // The construction sketch is drawn at full strength first, then fades to its finished opacity at the end, as it was made.
+  const sketch = svg.querySelector('#layer-sketch'), sketchFinal = sketch ? Number(sketch.getAttribute('opacity') ?? 1) : 1;
+  sketch?.removeAttribute('opacity');
+  const finalSrc = $('#attempt-art').src, finalNote = $('#process-note').textContent;
+  let stopped = false, url = null;
+  const show = async () => {
+    const next = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' }));
+    const img = new Image(); img.src = next; await img.decode().catch(() => {});
+    const art = $('#attempt-art'); if (!art || stopped) { URL.revokeObjectURL(next); return false; }
+    art.src = next; if (url) URL.revokeObjectURL(url); url = next;
+    return true;
+  };
+  replay = { stop: () => { stopped = true; } };
+  const label = playing => { const b = $('#play-drawing'); if (b) b.innerHTML = `${icon(playing ? 'stop' : 'play')}<span>${playing ? 'Stop' : 'Play'}</span>`; };
+  label(true);
+  const steps = Math.min(90, units.length);
+  let shown = 0;
+  try {
+    for (let step = 1; step <= steps && !stopped; step++) {
+      const started = performance.now(), upto = Math.ceil(units.length * step / steps);
+      for (; shown < upto; shown++) { const u = units[shown]; if (u.display === null) u.el.removeAttribute('display'); else u.el.setAttribute('display', u.display); }
+      if (!(await show())) break;
+      const note = $('#process-note'); if (note) note.textContent = `Replaying${layerStep(units[shown - 1].layer)} · ${shown} of ${units.length} shapes`;
+      await new Promise(r => setTimeout(r, Math.max(0, 140 - (performance.now() - started))));
+    }
+    if (sketch && sketchFinal < 1) {
+      const note = $('#process-note'); if (note && !stopped) note.textContent = 'Fading the construction sketch';
+      for (let f = 1; f <= 8 && !stopped; f++) { sketch.setAttribute('opacity', (1 - (1 - sketchFinal) * f / 8).toFixed(2)); await show(); await new Promise(r => setTimeout(r, 90)); }
+    }
+    if (!stopped) await new Promise(r => setTimeout(r, 900));
+  } finally {
+    const art = $('#attempt-art'), note = $('#process-note');
+    if (art) art.src = finalSrc;
+    if (note) note.textContent = finalNote;
+    setTimeout(() => url && URL.revokeObjectURL(url), 1000);
+    replay = null; label(false);
+  }
+}
 // The polled step of a "Try again" running for this test, or null.
 const retryState = g => selectedImage && retrying.get(selectedImage.id) === g.id ? generating.get(selectedImage.id) || null : null;
 // The attempt in progress: the refined prompt and its change as soon as they exist, then Codex's reasoning lines as they arrive.
 function liveAttempt(step) {
   const state = liveJobs.get(selectedImage.id) || {}, refined = state.refined;
+  if (state.mode === 'vector') return liveDrawing(state, step);
   const notes = (state.log || []).map(l => `<li>${escape(l.text)}</li>`).join('');
   const now = step === 'queued' ? 'Waiting in line' : GENERATE_STEPS[step]?.replace(/…$/, '') || 'Starting';
   return `<div class="generation-notes">
@@ -1126,7 +1271,7 @@ function liveAttempt(step) {
       </section>
       <section>
         <h3>Studio notes</h3>
-        <ul class="live-log">${notes}<li class="live-now">${escape(now)}${RETRY_ORDER.includes(step) ? `<span class="step-dots" aria-hidden="true">${dotsFor(RETRY_ORDER, RETRY_ORDER.indexOf(step))}</span>` : '<i></i>'}</li></ul>
+        <ul class="live-log">${notes}<li class="live-now">${escape(now)}${orderFor(step, true).includes(step) ? `<span class="step-dots" aria-hidden="true">${dotsFor(orderFor(step, true), orderFor(step, true).indexOf(step))}</span>` : '<i></i>'}</li></ul>
       </section>
     </div>`;
 }
@@ -1140,6 +1285,17 @@ function updateLiveAttempt(box, step) {
   box.querySelectorAll('.generation-prompt').forEach(colorCodes);
   for (const [selector, top] of kept) { const el = box.querySelector(selector); if (el) el.scrollTop = top; }
 }
+// A drawing in progress: its newest stage as soon as it exists, the drawer's notes, then the critique's reasoning.
+function liveDrawing(state, step) {
+  const stages = state.stages || [], latest = stages.at(-1);
+  const notes = [...stages.map(st => st.note).filter(Boolean), ...(state.log || []).map(l => l.text)].map(text => `<li>${escape(text)}</li>`).join('');
+  const now = step === 'queued' ? 'Waiting in line' : GENERATE_STEPS[step]?.replace(/…$/, '') || 'Starting';
+  const order = orderFor(step, true);
+  return `<div class="generation-notes">
+      <section>${latest || state.liveVersion ? `<figure class="attempt live-drawing"><div class="attempt-image"><img id="live-art" src="${liveArt.url && liveArt.job === state.id ? liveArt.url : latest ? `/images/generated/${escape(latest.render || latest.filename)}` : ''}" alt="Drawing in progress"></div></figure>` : '<p class="muted">Reading the last critique…</p>'}</section>
+      <section><h3>Studio notes</h3><ul class="live-log">${notes}<li class="live-now">${escape(now)}${order.includes(step) ? `<span class="step-dots" aria-hidden="true">${dotsFor(order, order.indexOf(step))}</span>` : '<i></i>'}</li></ul></section>
+    </div>`;
+}
 // Updates only the dialog's progress (polled while a retry runs), leaving open disclosures and scroll alone.
 function renderRetryStatus() {
   const g = selectedImage?.generations?.find(x => x.id === openGenerationId), button = $('#retry-generation');
@@ -1148,14 +1304,17 @@ function renderRetryStatus() {
   // The live tab closes itself when the run ends (the finished attempt then opens in its own tab).
   if (!running && openAttempt === 'live') { openAttempt = -1; return renderGenerationDialog(); }
   if (running && openAttempt === 'live' && !$('#live-attempt')) return renderGenerationDialog();
-  if ($('#live-attempt')) updateLiveAttempt($('#live-attempt'), running);
+  if ($('#live-attempt')) { updateLiveAttempt($('#live-attempt'), running); refreshLiveArt(liveJobs.get(selectedImage.id)); }
   const otherJob = !running && generating.has(selectedImage.id);
   const full = g.attempts.length >= MAX_TEST_ATTEMPTS;
   const failure = !running ? retryErrors.get(g.id) : null;
   button.disabled = !!running || otherJob || full;
   const from = viewedAttempt(g);
   $('#retry-label').textContent = running === 'queued' ? 'Queued' : running ? 'Trying again…' : from === g.attempts.length - 1 ? 'Try again' : `Try again from attempt ${from + 1}`;
-  button.title = full ? `A test keeps at most ${MAX_TEST_ATTEMPTS} attempts. Start a new test from the prompt tab.` : 'Refines the newest prompt, generates once more and compares. Takes a few minutes and uses your Codex allowance.';
+  const drawing = g.attempts[from]?.kind === 'vector';
+  button.title = full ? `A test keeps at most ${MAX_TEST_ATTEMPTS} attempts. Start a new test from the prompt tab.`
+    : drawing ? `Revises this drawing from its critique, then compares again. Takes a few minutes and uses your ${DRAWER_NAMES[g.drawer] || 'drawing'} and Codex allowance.`
+    : 'Refines the newest prompt, generates once more and compares. Takes a few minutes and uses your Codex allowance.';
   const status = $('#retry-status');
   // While the live tab is open its studio notes already show the current step and its progress dots; don't repeat them beside the button.
   const liveOpen = !!$('#live-attempt');
@@ -1270,6 +1429,7 @@ function generationClick(event) {
   if (chip) openGeneration(chip.dataset.openGeneration);
 }
 function selectAttempt(value) {
+  replay?.stop();
   openAttempt = value === 'live' ? 'live' : Number(value);
   renderGenerationDialog(); $(`#attempt-tab-${value}`)?.focus();
 }
@@ -1280,7 +1440,8 @@ function retryGeneration(generation) {
   const imageId = selectedImage.id;
   if (generating.has(imageId)) return;
   const from = viewedAttempt(generation);
-  retryErrors.delete(generation.id); generating.set(imageId, 'queued'); retrying.set(imageId, generation.id); liveJobs.delete(imageId);
+  retryErrors.delete(generation.id); generating.set(imageId, 'queued'); retrying.set(imageId, generation.id);
+  if (generation.attempts[from].kind === 'vector') liveJobs.set(imageId, { mode: 'vector' }); else liveJobs.delete(imageId);
   openAttempt = 'live'; markGenerating(); renderGenerationDialog(); focusAttemptTab();
   sendJob({ id: newJobId(), kind: 'generate', imageId, generationId: generation.id, live: true },
     `/api/images/${encodeURIComponent(imageId)}/generations/${encodeURIComponent(generation.id)}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from }) });
@@ -1296,6 +1457,9 @@ $('#generation-content').addEventListener('click', async event => {
   const generation = selectedImage?.generations?.find(g => g.id === openGenerationId); if (!generation) return;
   const tab = event.target.closest('[data-attempt]');
   if (tab) return selectAttempt(tab.dataset.attempt);
+  if (event.target.closest('#play-drawing')) return playDrawing(generation.attempts[viewedAttempt(generation)]);
+  const stage = event.target.closest('[data-stage]');
+  if (stage) return showStage(stage, generation.attempts[viewedAttempt(generation)]);
   const view = event.target.closest('[data-generated]');
   if (view) return openGeneratedLightbox(view);
   const proof = event.target.closest('[data-evidence]');

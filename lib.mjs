@@ -93,6 +93,38 @@ export const stylePromptOf = prompt => text(String(prompt).replace(/\s*Color pal
 // The generator gets the subject as plain words: "[a fox] ink lines" becomes "a fox. ink lines". Stored prompts keep the brackets.
 export const promptForGenerator = prompt => String(prompt).replace(/^\s*\[([^\]]*)\]\s*[,.:;]?\s*/, (_, subject) => subject.trim() ? `${subject.trim()}. ` : '').replace(/\[([^\]]*)\]/g, '$1');
 const GENERATED_FILE =/^[a-f0-9-]{8,64}\.(png|jpg|webp)$/;
+const SVG_FILE = /^[a-f0-9-]{8,64}\.svg$/;
+export const DRAWERS = ['claude', 'codex'];
+// Vector drawings are written by a text model as SVG code. They are cleaned before they are saved, rendered or served:
+// only drawing markup and inline styles stay (no scripts, embedded HTML, external links, raster images or event handlers).
+export const MAX_SVG = 600 * 1024;
+export function sanitizeSvg(raw) {
+  const found = String(raw ?? '').match(/<svg[\s>][\s\S]*<\/svg>/i);
+  if (!found) throw new Error('The drawing came back without an SVG. Try again.');
+  let svg = found[0];
+  if (svg.length > MAX_SVG) throw new Error('The drawing was too large to save. Try again.');
+  svg = svg
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!(?:DOCTYPE|ENTITY)[\s\S]*?>/gi, '')
+    .replace(/<\?[\s\S]*?\?>/g, '')
+    .replace(/<(script|foreignObject|iframe|object|embed|audio|video|image|a)\b[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<(script|foreignObject|iframe|object|embed|audio|video|image|a)\b[^>]*\/?>/gi, '')
+    .replace(/\s(on[a-z]+)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s((?:xlink:)?href)\s*=\s*("([^"]*)"|'([^']*)')/gi, (all, _name, _q, a, b) => (a ?? b ?? '').trim().startsWith('#') ? all : '')
+    .replace(/url\(\s*(['"]?)\s*(?!#)[^)]*\)/gi, 'none');
+  if (/<script|<foreignObject|javascript:|@import/i.test(svg)) throw new Error('The drawing contained unsafe content. Try again.');
+  if (!/^<svg[^>]*\sxmlns=["']http:\/\/www\.w3\.org\/2000\/svg["']/i.test(svg)) svg = svg.replace(/^<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+  return svg;
+}
+// The drawing's size from its viewBox (or width/height), for rendering; bounded so a render stays practical.
+export function svgSize(svg) {
+  const box = svg.match(/viewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+  let w = Number(box?.[1]), h = Number(box?.[2]);
+  if (!(w > 0 && h > 0)) { w = Number(svg.match(/<svg[^>]*\swidth=["']([\d.]+)/i)?.[1]); h = Number(svg.match(/<svg[^>]*\sheight=["']([\d.]+)/i)?.[1]); }
+  if (!(w > 0 && h > 0)) { w = 1536; h = 1024; }
+  const long = Math.max(w, h), scale = Math.min(2048, Math.max(1536, long)) / long; // long side 1536-2048 px
+  return { width: Math.round(w * scale), height: Math.round(h * scale) };
+}
 export const MAX_TEST_ATTEMPTS = 8;
 // One attempt of a test: the generated file, the prompt that made it, its judgement, and what changed from the attempt before.
 export function validateAttempt(attempt) {
@@ -101,7 +133,12 @@ export function validateAttempt(attempt) {
   if (!prompt) throw new Error('Invalid generation prompt.');
   // basedOn: index of the attempt whose prompt was reworked into this one (null for a test's first attempt, or older records).
   const basedOn = Number.isInteger(attempt.basedOn) && attempt.basedOn >= 0 ? attempt.basedOn : null;
-  return { filename: attempt.filename, prompt, change: text(attempt.change, 400) || null, basedOn, ...validateJudgement(attempt) };
+  // A vector attempt keeps its SVG and, for a staged drawing, every stage with the drawer's note; filename is its render.
+  const vector = attempt.kind === 'vector' && SVG_FILE.test(attempt.svg || '') ? {
+    kind: 'vector', drawer: DRAWERS.includes(attempt.drawer) ? attempt.drawer : null, svg: attempt.svg,
+    stages: (Array.isArray(attempt.stages) ? attempt.stages : []).filter(st => SVG_FILE.test(st?.filename || '')).slice(0, 6).map(st => ({ filename: st.filename, render: GENERATED_FILE.test(st.render || '') ? st.render : null, note: text(st.note, 400), layers: (Array.isArray(st.layers) ? st.layers : []).filter(l => ['sketch', 'color', 'line', 'finish'].includes(l)) })),
+  } : {};
+  return { filename: attempt.filename, prompt, change: text(attempt.change, 400) || null, basedOn, ...vector, ...validateJudgement(attempt) };
 }
 // A test generation: attempts made from a prompt alone, each rated against the original image. The first run makes
 // one or two; "Try again" adds refined attempts up to MAX_TEST_ATTEMPTS.
@@ -111,7 +148,8 @@ export function validateGeneration(value) {
   if (raw[1] && !raw[1].change && value.recalibration) raw[1] = { ...raw[1], change: value.recalibration };
   const attempts = raw.map(validateAttempt);
   if (!attempts.length) throw new Error('A generation needs at least one image.');
-  return { id: typeof value.id === 'string' && /^[\w-]{8,64}$/.test(value.id) ? value.id : randomUUID(), createdAt: text(value.createdAt, 40) || new Date().toISOString(), target: Number.isFinite(value.target) ? value.target : null, attempts, error: text(value.error, 300) };
+  const vector = value.mode === 'vector' ? { mode: 'vector', drawer: DRAWERS.includes(value.drawer) ? value.drawer : null } : {};
+  return { id: typeof value.id === 'string' && /^[\w-]{8,64}$/.test(value.id) ? value.id : randomUUID(), createdAt: text(value.createdAt, 40) || new Date().toISOString(), target: Number.isFinite(value.target) ? value.target : null, ...vector, attempts, error: text(value.error, 300) };
 }
 // An identification check: proposed changes to the style name, tags and collection of one image, each with a
 // confidence and a reason. Only real changes are kept as proposals; the user applies or dismisses each one.

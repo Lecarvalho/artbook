@@ -10,6 +10,7 @@ https://github.com/user-attachments/assets/7d09adbe-3a3d-403f-822d-6c361c87af74
 - **Recognizes known references** (a film, a series, an artist) when it can, and keeps the source link.
 - **Writes two prompts** per image: one for a similar image, one for the same style with a new subject.
 - **Tests the style prompt**: "Test this prompt" makes an image from the prompt alone (not the reference), rates how closely its style matches the original, and, below 70%, refines the prompt and tries once more. "Try again" in the test reworks the prompt of the attempt you are viewing (aware of how every attempt scored) for another attempt, up to 8 per test; each attempt gets its own tab. Key phrases in the critique, and in what already works, link to side-by-side crops of the original and the attempt, so you can see what it means. Results and reasoning are saved with the image; delete them any time, or make a refined prompt the image's style prompt. This uses more of your Codex allowance than identifying an image.
+- **Tests the style as a vector drawing**: set "Test as" to "SVG · Claude" or "SVG · Codex" and the model draws the style as SVG code from the prompt alone, one layer at a time (sketch, color and tone, line and detail, finish), looking at a render of the drawing so far before each layer. While it draws you can watch the drawing grow over the reference (live as it is written with Claude, layer by layer with Codex). The finished drawing is judged like an image test; the Process strip shows each layer and Play replays the drawing shape by shape. "Try again" redraws only the layers its critique concerns. The downloaded SVG keeps the layers as named groups. Rendering needs Microsoft Edge or Google Chrome installed.
 - **Checks the identification**: in a test, "Check identification" looks at the image again with what its tests found and suggests changes to its style name, tags and collection, each with a confidence and a reason. Nothing changes until you apply a suggestion.
 - **Flags AI-generated images** when the file or a visible watermark says so.
 - **Finds more**: search keywords and links to YouTube, Pinterest and Google Images.
@@ -28,6 +29,8 @@ https://github.com/user-attachments/assets/7d09adbe-3a3d-403f-822d-6c361c87af74
 No other setup or API key is needed. Your library is created in a local `data/` folder.
 
 If Artbook can't find Codex, put `codex` on your PATH or set `CODEX_CLI_PATH` to its JavaScript entry point.
+
+To draw with Claude (optional), install [Claude Code](https://claude.com/claude-code) and sign in with your Claude subscription (`claude auth login`). If it is not on your PATH, set `CLAUDE_CLI_PATH`. If Edge or Chrome is installed somewhere unusual, set `ARTBOOK_BROWSER` to its executable.
 
 ## Adding images
 
@@ -50,6 +53,7 @@ https://github.com/user-attachments/assets/006a1e4b-0d20-4ddf-b9f6-372915c2e58f
 
 - Images and library data stay in the `data/` folder on your computer. Back up that folder to keep your library.
 - Images are sent to Codex for analysis using **your own** ChatGPT subscription and count toward its limits. API keys are not used and there is no paid fallback.
+- Drawing with Claude uses **your own** Claude subscription through Claude Code. Only the prompt goes to Claude, never the reference image; API keys are refused.
 - Adding an image straight into a chosen style skips the analysis.
 
 ## Your images and copyright
