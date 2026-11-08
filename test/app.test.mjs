@@ -187,7 +187,12 @@ test('test generations retry once below the target, keep both attempts and their
   const dir = await mkdtemp(join(tmpdir(), 'artbook-generate-'));
   const prompts = [], judged = [], histories = [];
   let scores = [40, 82], failGenerate = false, failSecond = false, reclassifies = 0;
-  const judgement = score => ({ scores: { palette: score, linework: score, rendering: score, texture: score, lighting: score, shapes: score + 6 }, differences: ['lines too thin', ''], summary: 'Close family, different linework.' });
+  const judgement = score => ({ scores: { palette: score, linework: score, rendering: score, texture: score, lighting: score, shapes: score + 6 }, differences: ['lines too thin', ''], summary: 'Close family, different linework.',
+    evidence: [{ difference: 0, phrase: 'Lines too thin', original: { x: 0.9, y: 0.2, w: 0.3, h: 0.25 }, generated: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+      { difference: 1, phrase: 'empty', original: { x: 0, y: 0, w: 1, h: 1 }, generated: { x: 0, y: 0, w: 1, h: 1 } },
+      { difference: 0, phrase: 'not in the note', original: { x: 0, y: 0, w: 0.5, h: 0.5 }, generated: { x: 0, y: 0, w: 0.5, h: 0.5 } },
+      { list: 'strengths', difference: 0, phrase: 'warm washes', original: { x: 0.2, y: 0.2, w: 0.3, h: 0.3 }, generated: { x: 0.4, y: 0.4, w: 0.3, h: 0.3 } }],
+    strengths: ['same warm washes', ''] });
   const server = await makeApp({
     dataDir: dir, status: async () => ({ connected: true }),
     analyze: async () => { reclassifies++; return { name: 'Bold ink cartoon', keywords: ['ink cartoon'], tags: ['thick ink lines', 'flat color', 'simple shapes'], details: { stylePrompt: '[a lighthouse] thick ink lines' } }; },
@@ -221,6 +226,11 @@ test('test generations retry once below the target, keep both attempts and their
   assert.equal(generation.attempts[0].change, null);
   assert.equal(generation.attempts[1].change, 'Asked for heavier lines.');
   assert.deepEqual(generation.attempts[0].differences, ['lines too thin']);
+  // Evidence keeps one region pair per difference whose phrase appears in it, clamped inside each image.
+  assert.deepEqual(generation.attempts[0].strengths, ['same warm washes']);
+  assert.deepEqual(generation.attempts[0].evidence, [
+    { list: 'differences', difference: 0, phrase: 'Lines too thin', original: { x: 0.7, y: 0.2, w: 0.3, h: 0.25 }, generated: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+    { list: 'strengths', difference: 0, phrase: 'warm washes', original: { x: 0.2, y: 0.2, w: 0.3, h: 0.3 }, generated: { x: 0.4, y: 0.4, w: 0.3, h: 0.3 } }]);
   assert.ok(judged.every(([original]) => original === join(dir, 'images', image.filename)), 'each attempt is judged against the original');
   for (const attempt of generation.attempts) {
     const served = await fetch(`${base}/images/generated/${attempt.filename}`);

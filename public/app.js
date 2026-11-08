@@ -460,6 +460,17 @@ function applyTint() {
   else $('#style-dialog').style.removeProperty('--tint');
   // ::backdrop does not inherit the tint in every browser, so a separate layer behind the modal carries it.
   if (tint) $('#modal-veil').style.setProperty('--tint', tint); else $('#modal-veil').style.removeProperty('--tint');
+  // The arrows take the edge fill beside them (the color that continues the image), with ink or light chevrons for contrast.
+  const fill = img && edgeFills.get(img.currentSrc || img.src);
+  [['prev', fill?.left], ['next', fill?.right]].forEach(([side, bands]) => {
+    const nav = $(`.hero-${side}`); if (!nav) return;
+    const color = bands?.[bands.length >> 1];
+    const rgb = color?.match(/\d+/g)?.map(Number);
+    if (!rgb) { nav.style.removeProperty('--nav-fill'); nav.style.removeProperty('--nav-ink'); return; }
+    const light = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255 > 0.55;
+    nav.style.setProperty('--nav-fill', color);
+    nav.style.setProperty('--nav-ink', light ? '#1c1f1d' : '#f3f1ea');
+  });
 }
 function paintSlides() {
   applyTint();
@@ -467,6 +478,49 @@ function paintSlides() {
     const paint = () => { try { edgeFill(img); applyTint(); showPalette(); } catch {} };
     if (img.complete && img.naturalWidth) paint(); else img.addEventListener('load', paint, { once: true });
   });
+}
+// Desktop: drag the image with the mouse to move between slides, as a swipe does on phones. A short pull snaps
+// back; past 12% of the width it moves one slide. A drag never opens the lightbox.
+function dragCarousel(track) {
+  if (!track || track.children.length < 2) return;
+  track.classList.add('draggable');
+  let drag = null, swallowClick = false;
+  track.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    drag = { x: event.clientX, left: track.scrollLeft, id: event.pointerId, moved: false };
+  });
+  track.addEventListener('pointermove', event => {
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 6) return;
+      drag.moved = true; track.setPointerCapture(drag.id); track.classList.add('dragging');
+    }
+    event.preventDefault();
+    track.scrollLeft = drag.left - dx;
+  });
+  const end = event => {
+    const done = drag; drag = null;
+    if (!done?.moved) return;
+    const dx = event.clientX - done.x, from = Math.round(done.left / track.clientWidth);
+    const to = Math.abs(dx) > track.clientWidth * 0.12 ? from + (dx < 0 ? 1 : -1) : from;
+    // Ease to the slide ourselves with snapping still off: the browser's smooth scroll is dropped right after a
+    // drag, and turning snapping back on mid-glide makes the image jump.
+    const index = Math.max(0, Math.min(track.children.length - 1, to));
+    const start = track.scrollLeft, target = index * track.clientWidth, began = performance.now();
+    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320;
+    heroTarget = index;
+    const step = now => {
+      const k = duration ? Math.min(1, (now - began) / duration) : 1;
+      track.scrollLeft = start + (target - start) * (1 - (1 - k) ** 3);
+      if (k < 1) requestAnimationFrame(step); else track.classList.remove('dragging');
+    };
+    requestAnimationFrame(step);
+    swallowClick = true; setTimeout(() => { swallowClick = false; }, 0);
+  };
+  track.addEventListener('pointerup', end);
+  track.addEventListener('pointercancel', end);
+  track.addEventListener('click', event => { if (swallowClick) { event.stopPropagation(); event.preventDefault(); } }, true);
 }
 function setupCarousel(slide = 0) {
   selectedImage = null;
@@ -478,6 +532,7 @@ function setupCarousel(slide = 0) {
   if (start) { document.querySelectorAll('.hero-thumb').forEach((t, n) => { t.classList.toggle('active', n === start); t.toggleAttribute('aria-current', n === start); }); }
   heroIndex = start;
   document.querySelectorAll('[data-zoom]').forEach(button => button.onclick = () => openLightbox(Number(button.dataset.zoom)));
+  dragCarousel($('.hero-track'));
   // React to width changes only: height changes (e.g. a phone's address bar) must not re-snap or repaint the slides.
   let trackWidth = track.clientWidth;
   new ResizeObserver(() => {
@@ -524,7 +579,7 @@ function setupCarousel(slide = 0) {
   document.querySelectorAll('[data-slide]').forEach(button => button.onclick = () => goToSlide(Number(button.dataset.slide)));
 }
 document.addEventListener('keydown', event => {
-  if (!$('#style-dialog').open || $('#edit-dialog').open || $('#generation-dialog').open || !$('.hero-nav')) return;
+  if (!$('#style-dialog').open || $('#edit-dialog').open || generationOpen() || !$('.hero-nav')) return;
   if ($('#lightbox').open && $('#lightbox').dataset.generated) return; // arrows step through references, not test images
   if (event.target.closest?.('input, textarea, select, [role=tablist]')) return;
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -627,10 +682,10 @@ async function applyJob(record, state) {
       if (state.status === 'done') {
         showPromptTab('style-prompt');
         const id = record.generationId || selectedImage?.generations?.at(-1)?.id;
-        if (id && (!record.generationId || $('#generation-dialog').open)) openGeneration(id, -1);
+        if (id && (!record.generationId || generationOpen())) openGeneration(id, -1);
       }
     } else markGenerating();
-    if ($('#generation-dialog').open) renderRetryStatus();
+    if (generationOpen()) renderRetryStatus();
     if (failure) return toast(failure);
     const generation = state.result.images.find(i => i.id === record.imageId)?.generations?.find(g => g.id === record.generationId) || state.result.images.find(i => i.id === record.imageId)?.generations?.at(-1);
     if (!generation) return toast('Test generation saved.');
@@ -798,13 +853,17 @@ function showEmptiedNotice() {
 $('#style-dialog').addEventListener('close', () => {
   emptiedStyle = null;
   $('#modal-veil').hidden = true;
-  // Closed by the button, Esc or backdrop: drop the history entry pushed on open.
-  if (!closingFromHistory && history.state?.artbook === 'style') history.back();
+  const inTest = history.state?.artbook === 'test';
+  if (generationOpen()) { evidenceView = null; $('#generation-view').hidden = true; $('#style-content').hidden = false; }
+  // Closed by the button, Esc or backdrop: drop the history entries pushed on open (and for an open test).
+  if (!closingFromHistory && (inTest || history.state?.artbook === 'style')) { skipPop = inTest; history.go(inTest ? -2 : -1); }
   closingFromHistory = false;
 });
 // The browser/phone back gesture closes the style modal instead of leaving Artbook (phones have no close button).
 let closingFromHistory = false;
 addEventListener('popstate', () => {
+  if (skipPop) { skipPop = false; return; } // our own history.back() after closing a view
+  if (generationOpen()) return closeGenerationView(true);
   if (!$('#style-dialog').open) return;
   closingFromHistory = true;
   if ($('#lightbox').open) $('#lightbox').close();
@@ -958,7 +1017,7 @@ function markGenerating() {
   const thought = live?.log?.at(-1)?.text || '';
   $('#generate-thought').textContent = first + thought;
   $('#generate-thought').hidden = !(first || thought);
-  if ($('#generation-dialog').open) renderRetryStatus();
+  if (generationOpen()) renderRetryStatus();
 }
 // Refreshes the details of the selected image in place (after the library changed) without rebuilding the carousel.
 function reselectImage() {
@@ -975,7 +1034,7 @@ function renderGenerations() {
     const best = g.attempts.reduce((a, b) => b.similarity > a.similarity ? b : a);
     return `<button class="generation-chip" data-open-generation="${escape(g.id)}" aria-label="Open test generation, best style match ${best.similarity}%"><img src="/images/generated/${escape(best.filename)}" alt="" loading="lazy"><span>${best.similarity}%</span></button>`;
   }).join('');
-  if ($('#generation-dialog').open) renderGenerationDialog();
+  if (generationOpen()) renderGenerationDialog();
 }
 let openGenerationId = null, openAttempt = -1; // -1 = the newest attempt
 const ICONS = {
@@ -990,7 +1049,9 @@ const signed = n => n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0';
 // One tab per attempt; the open tab shows that attempt beside the original with its reasoning and prompt.
 function renderGenerationDialog() {
   const g = selectedImage?.generations?.find(x => x.id === openGenerationId);
-  if (!g) return $('#generation-dialog').close();
+  if (!g) return closeGenerationView();
+  if (evidenceView) return renderEvidence(g);
+  $('#generation-back-label').textContent = styles.find(s => s.id === selectedStyle)?.name || 'Back';
   const target = g.target ?? 70;
   const live = openAttempt === 'live' && !!retryState(g);
   const n = live || openAttempt === 'live' || openAttempt < 0 || openAttempt >= g.attempts.length ? g.attempts.length - 1 : openAttempt;
@@ -1017,7 +1078,8 @@ function renderGenerationDialog() {
         <section>
           ${change ? `<h3>Adjustments</h3><p>${escape(change)}</p>` : ''}
           <h3>Critique</h3>${a.summary ? `<p>${escape(a.summary)}</p>` : ''}
-          ${a.differences.length ? `<ul>${a.differences.map(d => `<li>${escape(d)}</li>`).join('')}</ul>` : ''}
+          ${a.differences.length ? `<ul>${a.differences.map((d, i) => `<li>${evidenceText(d, i, a, 'differences')}</li>`).join('')}</ul>` : ''}
+          ${a.strengths?.length ? `<h3>What works</h3><ul class="strengths">${a.strengths.map((d, i) => `<li>${evidenceText(d, i, a, 'strengths')}</li>`).join('')}</ul>` : ''}
         </section>
         <section>
           <h3>Trait scores</h3>
@@ -1085,13 +1147,101 @@ function renderRetryStatus() {
 }
 // Re-rendering removes the focused control; keep focus on the open tab rather than letting it fall to the close button.
 const focusAttemptTab = () => $('#generation-content [role=tab][aria-selected=true]')?.focus({ preventScroll: true });
-function openGeneration(id, attempt = -1) {
-  openGenerationId = id; openAttempt = attempt;
-  renderGenerationDialog();
-  if ($('#generation-dialog').open) focusAttemptTab(); else $('#generation-dialog').showModal();
-  $('#generation-dialog').scrollTop = 0;
+// A difference with its evidence phrase as a link that opens the matching crops of both images.
+const proofFor = (attempt, list, index) => (attempt.evidence || []).find(e => (e.list || 'differences') === list && e.difference === index);
+function evidenceText(note, index, attempt, list) {
+  const proof = proofFor(attempt, list, index);
+  const at = proof ? note.toLowerCase().indexOf(proof.phrase.toLowerCase()) : -1;
+  if (at < 0) return escape(note);
+  const words = note.slice(at, at + proof.phrase.length);
+  return `${escape(note.slice(0, at))}<button class="evidence-link" data-evidence="${index}" data-list="${list}" aria-haspopup="dialog" title="Show where">${escape(words)}<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/></svg></button>${escape(note.slice(at + proof.phrase.length))}`;
 }
-$('#close-generation').onclick = () => $('#generation-dialog').close();
+const loadImage = src => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src; });
+// Draws the region (fractions of the image, padded a little) into the canvas at up to `width` CSS pixels.
+function drawCrop(canvas, img, box, width) {
+  const pad = 0.04, W = img.naturalWidth, H = img.naturalHeight;
+  const x = Math.max(0, box.x - pad) * W, y = Math.max(0, box.y - pad) * H;
+  const w = Math.min(W - x, (box.w + pad * 2) * W), h = Math.min(H - y, (box.h + pad * 2) * H);
+  const scale = Math.min(width / w, 1.6 * width / Math.max(w, h)), dpr = devicePixelRatio || 1;
+  canvas.width = Math.round(w * scale * dpr); canvas.height = Math.round(h * scale * dpr);
+  canvas.style.setProperty('aspect-ratio', `${w} / ${h}`);
+  canvas.getContext('2d').drawImage(img, x, y, w, h, 0, 0, canvas.width, canvas.height);
+}
+// The whole image, small, with the region outlined so the crop has context.
+function drawContext(canvas, img, box, width) {
+  const dpr = devicePixelRatio || 1, scale = width / img.naturalWidth;
+  canvas.width = Math.round(width * dpr); canvas.height = Math.round(img.naturalHeight * scale * dpr);
+  canvas.style.setProperty('aspect-ratio', `${img.naturalWidth} / ${img.naturalHeight}`);
+  const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const r = [box.x * canvas.width, box.y * canvas.height, box.w * canvas.width, box.h * canvas.height];
+  ctx.lineWidth = 3 * dpr; ctx.strokeStyle = '#ffffffe6'; ctx.strokeRect(...r);
+  ctx.lineWidth = 1.5 * dpr; ctx.strokeStyle = '#1c1f1d'; ctx.strokeRect(...r);
+}
+// Evidence opens as a view inside the test dialog (not a dialog on top); Back returns to the attempt where it was.
+let evidenceView = null, evidenceScroll = 0; // { n, index, list } while the evidence view shows
+function openEvidence(generation, n, index, list = 'differences') {
+  if (!proofFor(generation.attempts[n], list, index)) return;
+  evidenceScroll = viewScroller().scrollTop;
+  evidenceView = { n, index, list };
+  renderGenerationDialog();
+  viewScroller().scrollTop = 0;
+  $('#generation-back').focus({ preventScroll: true });
+}
+function closeEvidence() {
+  const from = evidenceView; if (!from) return;
+  evidenceView = null;
+  renderGenerationDialog();
+  viewScroller().scrollTop = evidenceScroll;
+  $(`#generation-content [data-evidence="${from.index}"][data-list="${from.list}"]`)?.focus({ preventScroll: true });
+}
+async function renderEvidence(generation) {
+  const { n, index, list } = evidenceView, attempt = generation.attempts[n], proof = proofFor(attempt, list, index);
+  if (!proof) { evidenceView = null; return renderGenerationDialog(); }
+  $('#generation-title').textContent = proof.phrase.charAt(0).toUpperCase() + proof.phrase.slice(1);
+  $('#generation-back-label').textContent = `Attempt ${n + 1}`;
+  $('#generation-content').innerHTML = `
+    <p class="evidence-note">${list === 'strengths' ? '<span class="evidence-kind">Works · </span>' : ''}${escape(attempt[list][index])}</p>
+    <div class="evidence-pair">
+      <figure><canvas id="crop-original" role="img" aria-label="Detail of the original"></canvas><figcaption><canvas id="context-original" aria-hidden="true"></canvas><span>Original</span></figcaption></figure>
+      <figure><canvas id="crop-generated" role="img" aria-label="Detail of attempt ${n + 1}"></canvas><figcaption><canvas id="context-generated" aria-hidden="true"></canvas><span>Attempt ${n + 1}</span></figcaption></figure>
+    </div>`;
+  try {
+    const [original, made] = await Promise.all([loadImage(imageURL(selectedImage)), loadImage(`/images/generated/${attempt.filename}`)]);
+    if (!$('#crop-original')) return; // the view changed while the images loaded
+    const width = Math.min(440, ($('#generation-content').clientWidth - 16) / 2);
+    drawCrop($('#crop-original'), original, proof.original, width); drawCrop($('#crop-generated'), made, proof.generated, width);
+    drawContext($('#context-original'), original, proof.original, 44); drawContext($('#context-generated'), made, proof.generated, 44);
+  } catch { $('#generation-content').insertAdjacentHTML('beforeend', '<p class="error">The images could not be loaded.</p>'); }
+}
+// A test opens as a view inside the style modal (never a modal on top): Back, Escape or the browser back gesture
+// step out of the evidence view, then out of the test, before anything closes the modal.
+const generationOpen = () => !$('#generation-view').hidden;
+// On desktop the view scrolls inside the fixed-height modal; on phones the full-screen modal itself scrolls.
+const viewScroller = () => matchMedia('(min-width: 900px)').matches ? $('#generation-view') : $('#style-dialog');
+let styleScroll = 0;
+function openGeneration(id, attempt = -1) {
+  openGenerationId = id; openAttempt = attempt; evidenceView = null;
+  const wasOpen = generationOpen();
+  if (!wasOpen) { styleScroll = $('#style-dialog').scrollTop; $('#style-content').hidden = true; $('#generation-view').hidden = false; history.pushState({ artbook: 'test' }, ''); }
+  renderGenerationDialog();
+  viewScroller().scrollTop = 0;
+  if (wasOpen) focusAttemptTab(); else $('#generation-back').focus({ preventScroll: true });
+}
+let skipPop = false;
+function closeGenerationView(fromHistory = false) {
+  if (!generationOpen()) return;
+  evidenceView = null;
+  $('#generation-view').hidden = true; $('#style-content').hidden = false;
+  $('#style-dialog').scrollTop = styleScroll;
+  $('#tests')?.querySelector(`[data-open-generation="${CSS.escape(openGenerationId || '')}"]`)?.focus({ preventScroll: true });
+  if (!fromHistory && history.state?.artbook === 'test') { skipPop = true; history.back(); }
+}
+$('#generation-back').onclick = () => evidenceView ? closeEvidence() : closeGenerationView();
+$('#style-dialog').addEventListener('cancel', event => {
+  if (!generationOpen()) return;
+  event.preventDefault();
+  if (evidenceView) closeEvidence(); else closeGenerationView();
+});
 function generationClick(event) {
   const chip = event.target.closest('[data-open-generation]');
   if (chip) openGeneration(chip.dataset.openGeneration);
@@ -1125,6 +1275,8 @@ $('#generation-content').addEventListener('click', async event => {
   if (tab) return selectAttempt(tab.dataset.attempt);
   const view = event.target.closest('[data-generated]');
   if (view) return openGeneratedLightbox(view);
+  const proof = event.target.closest('[data-evidence]');
+  if (proof) return openEvidence(generation, viewedAttempt(generation), Number(proof.dataset.evidence), proof.dataset.list);
   if (event.target.closest('#retry-generation')) return retryGeneration(generation);
   const copy = event.target.closest('[data-copy-generation]');
   if (copy) {
@@ -1152,7 +1304,7 @@ $('#generation-content').addEventListener('click', async event => {
   remove.disabled = true;
   try {
     await api(`/api/images/${encodeURIComponent(selectedImage.id)}/generations/${encodeURIComponent(generation.id)}`, { method: 'DELETE' });
-    $('#generation-dialog').close();
+    closeGenerationView();
     await refresh(); reselectImage(); toast('Test generation deleted.');
   } catch (error) { remove.disabled = false; toast(error.message); }
 });

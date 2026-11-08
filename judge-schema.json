@@ -6,17 +6,132 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "palette": { "type": "integer" },
-        "linework": { "type": "integer" },
-        "rendering": { "type": "integer" },
-        "texture": { "type": "integer" },
-        "lighting": { "type": "integer" },
-        "shapes": { "type": "integer" }
+        "palette": {
+          "type": "integer"
+        },
+        "linework": {
+          "type": "integer"
+        },
+        "rendering": {
+          "type": "integer"
+        },
+        "texture": {
+          "type": "integer"
+        },
+        "lighting": {
+          "type": "integer"
+        },
+        "shapes": {
+          "type": "integer"
+        }
       },
-      "required": ["palette", "linework", "rendering", "texture", "lighting", "shapes"]
+      "required": [
+        "palette",
+        "linework",
+        "rendering",
+        "texture",
+        "lighting",
+        "shapes"
+      ]
     },
-    "differences": { "type": "array", "items": { "type": "string" } },
-    "summary": { "type": "string" }
+    "differences": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "list": {
+            "type": "string",
+            "enum": [
+              "differences",
+              "strengths"
+            ]
+          },
+          "difference": {
+            "type": "integer"
+          },
+          "phrase": {
+            "type": "string"
+          },
+          "original": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "w": {
+                "type": "number"
+              },
+              "h": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "w",
+              "h"
+            ]
+          },
+          "generated": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "w": {
+                "type": "number"
+              },
+              "h": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "w",
+              "h"
+            ]
+          }
+        },
+        "required": [
+          "list",
+          "difference",
+          "phrase",
+          "original",
+          "generated"
+        ]
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
   },
-  "required": ["scores", "differences", "summary"]
+  "required": [
+    "scores",
+    "differences",
+    "strengths",
+    "evidence",
+    "summary"
+  ]
 }

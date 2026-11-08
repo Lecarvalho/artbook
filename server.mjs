@@ -174,6 +174,8 @@ Score each trait from 0 to 100: 100 means it could come from the same artist or 
 - shapes: shape language, proportions and degree of stylization
 Be strict and calibrated; do not inflate scores because the image looks polished.
 - differences: 2-4 terse notes, most important first, each at most 14 words, in a painter's or illustrator's vocabulary (line weight, contour, edge control, value, chroma, wash, glaze, hatching, impasto, grain, silhouette). State the gap plainly, for example "thin uniform contours; original has tapering brush-ink lines".
+- strengths: 1-3 terse notes, each at most 14 words, same vocabulary, naming what the generated image gets right about the original's style, for example "same warm peach-and-ochre wash palette".
+- evidence: for each difference and each strength, show where to look. list = "differences" or "strengths". difference = the note's index in that list (0-based). phrase = 2-6 words copied exactly from that note that name the visual element. original and generated = a region on each image that shows it best, as fractions of that image's width and height (x, y = top-left corner, w, h = size, all between 0 and 1). Frame tight enough to see the detail (usually 15-45% of each side), not the whole image; for a global trait such as palette, frame the most telling area.
 - summary: one sentence of at most 20 words: the verdict only, in art terms.
 Write like a terse art director: no praise, no hedging, no filler.
 In differences and summary, call image 1 "the original" and image 2 "the generated image", never "image 1" or "image 2".
@@ -188,7 +190,7 @@ async function recalibratePrompt(originalPath, currentPrompt, judgement, job, hi
   const earlier = history.length > 1 ? `\nEarlier attempts of this test, oldest first (style match, and the change that led to it):\n${history.map((h, n) => `- attempt ${n + 1}: ${h.similarity}%${h.change ? `, ${h.change}` : ''}`).join('\n')}${Number.isInteger(judgement.index) ? `\nThe prompt below is attempt ${judgement.index + 1}'s; the differences and scores above are its critique.` : ''}\nKeep changes that raised the match and undo or rethink changes that lowered it.` : '';
   const prompt = `The attached image is an original reference. The text-to-image prompt below was written to create a NEW image in exactly this visual style with a different subject. The generator never sees the original, only the prompt. A reviewer compared the result with the original and found these style differences:
 ${judgement.differences.map(d => `- ${d}`).join('\n') || '- (no details given)'}
-Trait scores out of 100: ${STYLE_TRAITS.map(t => `${t} ${judgement.scores[t]}`).join(', ')}.${earlier}
+Trait scores out of 100: ${STYLE_TRAITS.map(t => `${t} ${judgement.scores[t]}`).join(', ')}.${judgement.strengths?.length ? `\nWhat already matches, keep it:\n${judgement.strengths.map(s => `- ${s}`).join('\n')}` : ''}${earlier}
 Rewrite the prompt so the next image matches the original's style more closely. Keep the same example subject in square brackets at the start. Fix the listed differences with concrete visual language, strengthen the weakest traits, and keep what already worked. If the prompt ends with a "Color palette:" line, keep it last and keep its hex codes. Describe the style through visual traits only; never use artist names, studio names or copyrighted character names, and do not mention the reference image. Keep it under 200 words.
 Return only the requested JSON:
 - prompt: the complete rewritten prompt.

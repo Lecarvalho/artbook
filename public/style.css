@@ -707,11 +707,18 @@ dialog{border-radius:8px}
 .generation-chip img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .6s cubic-bezier(.16,1,.3,1)}
 .generation-chip:hover img{transform:scale(1.06)}
 .generation-chip span{position:absolute;left:3px;bottom:3px;padding:2px 4px;border-radius:3px;background:#0b100ebf;color:#f3f1ea;font:var(--caption);letter-spacing:.04em;font-variant-numeric:tabular-nums}
-#generation-dialog{width:min(980px,calc(100% - 32px))}
-#generation-dialog h2{font-family:var(--display);font-weight:400;font-size:28px;letter-spacing:0;color:var(--ink)}
-#generation-dialog .form-intro{margin:-10px 0 20px;max-width:640px}
+/* The test view replaces the style details inside the same modal; content keeps a readable width. */
+.generation-view>*{max-width:980px;margin-left:auto;margin-right:auto}
+.generation-head{display:grid;gap:6px;margin-bottom:18px;padding-right:48px}
+.view-back{justify-self:start;color:var(--muted)}
+.view-back:hover{color:var(--ink)}
+#generation-title{margin:0;font-family:var(--display);font-weight:400;font-size:30px;line-height:1.1;letter-spacing:0;color:var(--ink)}
+.generation-view .form-intro{margin:0 0 20px;max-width:640px}
+@media(min-width:900px){
+  .generation-view:not([hidden]){display:block;height:100%;overflow-y:auto;padding:22px 48px 32px;overscroll-behavior:contain}
+}
 /* Attempt tabs: the prompt tabs' underline style, with the match % beside each label. */
-.attempt-tabs{display:flex;align-items:flex-end;gap:22px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow-x:auto;scrollbar-width:none}
+.attempt-tabs{display:flex;align-items:flex-end;gap:22px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
 .attempt-tabs::-webkit-scrollbar{display:none}
 .attempt-tabs [role=tab]{display:inline-flex;align-items:baseline;gap:7px;flex:none;border:0;background:none;padding:6px 0 10px;font-size:13px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
 .attempt-tabs [role=tab]:hover{color:var(--ink)}
@@ -758,6 +765,18 @@ dialog{border-radius:8px}
 .trait-scores dd span{font-size:11px;color:var(--muted)}
 .trait-scores dd span.up{color:var(--ink);font-weight:600}
 .generation-prompt{color:var(--muted);white-space:pre-wrap;font-size:12px}
+/* Evidence: a critique phrase links to matching crops of the original and the attempt. */
+.evidence-link{display:inline;padding:0;border:0;background:none;font:inherit;color:var(--ink);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--ink) 35%,transparent);text-decoration-style:dotted;text-underline-offset:3px;cursor:zoom-in}
+.evidence-kind{color:var(--ink);font-weight:600}
+.evidence-link:hover{text-decoration-style:solid;text-decoration-color:var(--ink)}
+.evidence-link svg{display:inline-block;width:.85em;height:.85em;margin-left:.2em;vertical-align:-.08em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.evidence-note{margin:0 0 18px;font-size:13px;line-height:1.6;color:var(--muted);max-width:640px}
+.evidence-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.evidence-pair figure{margin:0;min-width:0}
+.evidence-pair figure>canvas{display:block;width:100%;height:auto;max-height:60vh;object-fit:contain;border-radius:6px;background:#22332b0d}
+.evidence-pair figcaption{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px;font-weight:600;color:var(--ink)}
+.evidence-pair figcaption canvas{width:44px;height:auto;border-radius:3px;flex:none}
+@media(max-width:700px){.evidence-pair{gap:10px}}
 /* Dialog actions: icon + label text buttons on one 32px line; the one main action (Try again) is a compact primary. */
 .dialog-action{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0;font-size:13px;color:var(--ink);white-space:nowrap}
 .dialog-action .icon{width:16px;height:16px;flex:none}
@@ -780,10 +799,33 @@ dialog{border-radius:8px}
 }
 @media(max-width:700px){
   .generation-compare{gap:10px}
-  #generation-dialog h2{font-size:24px}
+  #generation-title{font-size:26px}
   .attempt-tabs{gap:18px}
   .generation-actions{flex-direction:column-reverse;align-items:stretch}
   .retry-box{justify-content:space-between;margin-left:0}
   .retry-button{flex:1 1 100%}
   .danger-action{align-self:flex-start}
 }
+/* Desktop toolbar (top right, on the paper side): a plain × and the same borderless round ⋯ as on phones.
+   Both are 36px round ghost buttons with ink icons and an accent-soft circle on hover or while open. */
+@media(min-width:900px){
+  #style-dialog .dialog-header-bare .icon-button{width:36px;height:36px;margin:12px 12px 0 0;border-radius:50%;background:transparent;border:0;color:var(--ink)}
+  #style-dialog .dialog-header-bare .icon-button:hover{background:color-mix(in srgb,var(--tint,var(--accent-soft)) 26%,var(--accent-soft));border:0}
+  #style-dialog .dialog-header-bare .icon-button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  #style-dialog .dialog-header-bare .icon-button .icon{width:18px;height:18px}
+  .identity-row .menu-wrap{top:12px;right:52px}
+  .identity-row .menu-button{width:36px;height:36px;border-radius:50%;background:transparent;border:0;color:var(--ink)}
+  .identity-row .menu-button:hover,.identity-row .menu-button[aria-expanded=true]{background:color-mix(in srgb,var(--tint,var(--accent-soft)) 26%,var(--accent-soft))}
+  .identity-row .menu-button svg{fill:var(--ink);width:18px;height:18px}
+  .identity-row .action-menu{right:-40px}
+  .identity-row h2{padding-right:88px}
+}
+/* Image arrows: round, borderless, in a light wash of the image's own color (like the modal), with ink chevrons. */
+#style-dialog .hero-nav{border:0;border-radius:50%;background:color-mix(in srgb,var(--nav-fill,var(--surface)) 92%,transparent);color:var(--nav-ink,var(--ink));box-shadow:0 1px 8px #0b100e29}
+#style-dialog .hero-nav:hover{background:var(--nav-fill,var(--surface));border:0;box-shadow:0 2px 12px #0b100e3d}
+#style-dialog .hero-nav:focus-visible{outline:2px solid var(--nav-ink,var(--ink));outline-offset:2px}
+/* Mouse drag on the carousel (desktop): grab cursor, no snapping or image ghost while dragging. */
+.hero-track.draggable{cursor:grab}
+.hero-track.draggable img{-webkit-user-drag:none;user-select:none}
+.hero-track.dragging{cursor:grabbing;scroll-snap-type:none;scroll-behavior:auto}
+.hero-track.dragging .hero-slide{cursor:grabbing}

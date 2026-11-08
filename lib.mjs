@@ -55,12 +55,42 @@ export function validateJudgement(value) {
     return [trait, Math.max(0, Math.min(100, Math.round(score)))];
   }));
   const similarity = Math.round(STYLE_TRAITS.reduce((sum, trait) => sum + scores[trait], 0) / STYLE_TRAITS.length);
-  const differences = (Array.isArray(value?.differences) ? value.differences : []).map(d => text(d, 240)).filter(Boolean).slice(0, 6);
-  return { similarity, scores, differences, summary: text(value?.summary, 400) };
+  // Notes keep their raw index so evidence can point at them even when blank notes are dropped.
+  const notes = (list, max) => {
+    const raw = (Array.isArray(list) ? list : []).map(d => text(d, 240));
+    const kept = raw.map((d, n) => d ? n : -1).filter(n => n >= 0).slice(0, max);
+    return { values: kept.map(n => raw[n]), kept };
+  };
+  const differences = notes(value?.differences, 6), strengths = notes(value?.strengths, 4);
+  const evidence = [
+    ...validateEvidence((Array.isArray(value?.evidence) ? value.evidence : []).filter(e => (e?.list ?? 'differences') === 'differences'), differences.values, differences.kept, 'differences'),
+    ...validateEvidence((Array.isArray(value?.evidence) ? value.evidence : []).filter(e => e?.list === 'strengths'), strengths.values, strengths.kept, 'strengths'),
+  ];
+  return { similarity, scores, differences: differences.values, strengths: strengths.values, evidence, summary: text(value?.summary, 400) };
+}
+// Where the critic looked: for a note (a difference or a strength), the words that name the element and a region on
+// each image (fractions of width and height). A phrase must appear in its note; regions are clamped inside the image.
+function validateEvidence(list, differences, kept, listName) {
+  const region = b => {
+    const n = k => Math.max(0, Math.min(1, Number(b?.[k])));
+    if (!['x', 'y', 'w', 'h'].every(k => Number.isFinite(Number(b?.[k])))) return null;
+    const w = Math.max(0.04, n('w')), h = Math.max(0.04, n('h'));
+    return { x: Math.min(n('x'), 1 - w), y: Math.min(n('y'), 1 - h), w, h };
+  };
+  const seen = new Set();
+  return (Array.isArray(list) ? list : []).flatMap(item => {
+    const index = kept.indexOf(item?.difference);
+    const phrase = text(item?.phrase, 80);
+    if (index < 0 || !phrase || seen.has(index) || !differences[index].toLowerCase().includes(phrase.toLowerCase())) return [];
+    const original = region(item.original), generated = region(item.generated);
+    if (!original || !generated) return [];
+    seen.add(index);
+    return [{ list: listName, difference: index, phrase, original, generated }];
+  }).slice(0, 6);
 }
 // A test prompt carries the palette line the interface appends to every prompt; the stored style prompt does not.
 export const stylePromptOf = prompt => text(String(prompt).replace(/\s*Color palette:[^]*$/i, ''), 1500);
-// The generator gets the subject as plain words: "[a fox] ink lines" becomes "a fox, ink lines". Stored prompts keep the brackets.
+// The generator gets the subject as plain words: "[a fox] ink lines" becomes "a fox. ink lines". Stored prompts keep the brackets.
 export const promptForGenerator = prompt => String(prompt).replace(/^\s*\[([^\]]*)\]\s*[,.:;]?\s*/, (_, subject) => subject.trim() ? `${subject.trim()}. ` : '').replace(/\[([^\]]*)\]/g, '$1');
 const GENERATED_FILE =/^[a-f0-9-]{8,64}\.(png|jpg|webp)$/;
 export const MAX_TEST_ATTEMPTS = 8;
