@@ -9,7 +9,7 @@ https://github.com/user-attachments/assets/7d09adbe-3a3d-403f-822d-6c361c87af74
 - **Names the style** of each image and groups matching images into collections.
 - **Recognizes known references** (a film, a series, an artist) when it can, and keeps the source link.
 - **Writes two prompts** per image: one for a similar image, one for the same style with a new subject.
-- **Tests the style prompt**: "Test this prompt" makes an image from the prompt alone (not the reference), rates how closely its style matches the original, and, below 70%, refines the prompt and tries once more. "Try again" in the test refines the newest prompt (aware of how earlier changes scored) for another attempt, up to 8 per test; each attempt gets its own tab. Results and reasoning are saved with the image; delete them any time, or make a refined prompt the image's style prompt. This uses more of your Codex allowance than identifying an image.
+- **Tests the style prompt**: "Test this prompt" makes an image from the prompt alone (not the reference), rates how closely its style matches the original, and, below 70%, refines the prompt and tries once more. "Try again" in the test reworks the prompt of the attempt you are viewing (aware of how every attempt scored) for another attempt, up to 8 per test; each attempt gets its own tab. Results and reasoning are saved with the image; delete them any time, or make a refined prompt the image's style prompt. This uses more of your Codex allowance than identifying an image.
 - **Flags AI-generated images** when the file or a visible watermark says so.
 - **Finds more**: search keywords and links to YouTube, Pinterest and Google Images.
 

@@ -60,6 +60,8 @@ export function validateJudgement(value) {
 }
 // A test prompt carries the palette line the interface appends to every prompt; the stored style prompt does not.
 export const stylePromptOf = prompt => text(String(prompt).replace(/\s*Color palette:[^]*$/i, ''), 1500);
+// The generator gets the subject as plain words: "[a fox] ink lines" becomes "a fox, ink lines". Stored prompts keep the brackets.
+export const promptForGenerator = prompt => String(prompt).replace(/^\s*\[([^\]]*)\]\s*[,.:;]?\s*/, (_, subject) => subject.trim() ? `${subject.trim()}. ` : '').replace(/\[([^\]]*)\]/g, '$1');
 const GENERATED_FILE =/^[a-f0-9-]{8,64}\.(png|jpg|webp)$/;
 export const MAX_TEST_ATTEMPTS = 8;
 // One attempt of a test: the generated file, the prompt that made it, its judgement, and what changed from the attempt before.
@@ -67,7 +69,9 @@ export function validateAttempt(attempt) {
   if (!GENERATED_FILE.test(attempt?.filename || '')) throw new Error('Invalid generated image.');
   const prompt = text(attempt.prompt, 2500);
   if (!prompt) throw new Error('Invalid generation prompt.');
-  return { filename: attempt.filename, prompt, change: text(attempt.change, 400) || null, ...validateJudgement(attempt) };
+  // basedOn: index of the attempt whose prompt was reworked into this one (null for a test's first attempt, or older records).
+  const basedOn = Number.isInteger(attempt.basedOn) && attempt.basedOn >= 0 ? attempt.basedOn : null;
+  return { filename: attempt.filename, prompt, change: text(attempt.change, 400) || null, basedOn, ...validateJudgement(attempt) };
 }
 // A test generation: attempts made from a prompt alone, each rated against the original image. The first run makes
 // one or two; "Try again" adds refined attempts up to MAX_TEST_ATTEMPTS.

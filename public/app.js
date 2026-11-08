@@ -15,7 +15,7 @@ function coverMosaic(style) {
   const shown = style.images.slice(-4).reverse();
   const extra = style.images.length - shown.length;
   // Each tile knows its image's position, so clicking it opens the modal on that image.
-  return `<div class="mosaic mosaic-${shown.length}">${shown.map((image, n) => `<span class="mosaic-tile" data-slide="${style.images.indexOf(image)}"><img src="${imageURL(image)}" alt="${n ? '' : `${escape(style.name)} reference`}" loading="lazy">${extra && n === shown.length - 1 ? `<span class="mosaic-more">+${extra}</span>` : ''}</span>`).join('')}</div>`;
+  return `<div class="mosaic mosaic-${shown.length}">${shown.map((image, n) => `<span class="mosaic-tile" data-cover-slide="${style.images.indexOf(image)}"><img src="${imageURL(image)}" alt="${n ? '' : `${escape(style.name)} reference`}" loading="lazy">${extra && n === shown.length - 1 ? `<span class="mosaic-more">+${extra}</span>` : ''}</span>`).join('')}</div>`;
 }
 const links = query => {
   const q = encodeURIComponent(query);
@@ -196,7 +196,7 @@ function referencePanel(style) {
         <div class="prompt-block" role="tabpanel" id="panel-image-prompt" aria-labelledby="tab-image-prompt"><p id="image-prompt"></p><p class="prompt-colors" hidden></p></div>
         <div class="prompt-block" role="tabpanel" id="panel-style-prompt" aria-labelledby="tab-style-prompt"><p id="style-prompt"></p><p class="prompt-colors" hidden></p></div>
         <div class="generate-row" id="generate-row">
-          <div class="generate-bar"><p class="field-hint">Replace the subject in [brackets] with your own.</p>
+          <div class="generate-bar"><label class="subject-field" id="subject-field"><span>Subject</span><input type="text" id="test-subject" autocomplete="off" spellcheck="false" maxlength="200" placeholder="Your subject"></label>
             <button class="text-button test-button" id="generate-style" title="Uses the prompt only, not this image. Takes a few minutes and uses your Codex allowance."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.4A2 2 0 0 0 7.3 20.5h9.4a2 2 0 0 0 1.7-3.1l-4.9-8.7V3.5M7.8 14h8.4"/></svg><span id="generate-label">Test this prompt</span></button></div>
           <div class="generate-progress" id="generate-progress" hidden><span id="generate-status" role="status"></span><span class="step-dots" id="step-dots" aria-hidden="true">${'<i></i>'.repeat(5)}</span><span class="generate-thought" id="generate-thought" hidden></span></div>
           <div class="tests" id="tests" hidden><p class="tests-label">Tests</p><div id="generations" class="generations" role="group" aria-label="Test generations"></div></div>
@@ -269,6 +269,9 @@ function selectImage(index) {
   $('#image-prompt').textContent = image.imagePrompt || '';
   // The [subject] placeholder takes the hint's muted color so it is easy to spot and replace; copying keeps the brackets.
   $('#style-prompt').innerHTML = escape(image.stylePrompt || '').replace(/\[[^\]]*\]/g, match => `<span class="prompt-slot">${match}</span>`);
+  // The subject field starts with the prompt's example subject; editing it rewrites the [slot], so Copy and Test use it.
+  const subject = (image.stylePrompt || '').match(/\[([^\]]*)\]/)?.[1] || '';
+  if ($('#test-subject')) { $('#test-subject').value = subject; $('#test-subject').dataset.original = subject; $('#subject-field').hidden = !subject; }
   $('#image-prompts').hidden = !image.imagePrompt && !image.stylePrompt;
   $('#prompts-missing').hidden = !$('#image-prompts').hidden;
   document.querySelectorAll('[data-prompt-tab]').forEach(tab => { tab.hidden = !$(`#${tab.dataset.promptTab}`).textContent; });
@@ -700,7 +703,7 @@ document.addEventListener('click', event => {
   const tag = event.target.closest('[data-tag]');
   if (tag) { $('#search').value = tag.dataset.tag; $('#style-dialog').close(); render(); }
   const style = event.target.closest('[data-style]');
-  if (style) showStyle(style.dataset.style, Number(event.target.closest('[data-slide]')?.dataset.slide) || 0);
+  if (style) showStyle(style.dataset.style, Number(event.target.closest('[data-cover-slide]')?.dataset.coverSlide) || 0);
 });
 document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => {
   view = button.dataset.view;
@@ -913,6 +916,16 @@ const promptText = panel => [...panel.querySelectorAll(':scope > p:not(.field-hi
 const GENERATE_STEPS = { queued: 'Waiting in line…', running: 'Setting up…', 'generate-1': 'Painting from the prompt…', 'judge-1': 'Critiquing it against the original…', recalibrate: 'Low match. Reworking the prompt…', 'generate-2': 'Painting a second study…', 'judge-2': 'Critiquing the second study…',
   'retry-recalibrate': 'Reworking the prompt from the last critique…', 'generate-retry': 'Painting a new study…', 'judge-retry': 'Critiquing it against the original…' };
 const TRAIT_LABELS = { palette: 'Palette', linework: 'Linework', rendering: 'Rendering', texture: 'Texture', lighting: 'Lighting', shapes: 'Shapes' };
+document.addEventListener('input', event => {
+  if (event.target.id !== 'test-subject') return;
+  const field = event.target, typed = field.value.replace(/[\[\]]/g, '').trim();
+  const slot = $('#style-prompt .prompt-slot'); if (!slot) return;
+  slot.textContent = `[${typed || field.dataset.original}]`;
+  slot.classList.toggle('edited', !!typed && typed !== field.dataset.original);
+});
+document.addEventListener('keydown', event => {
+  if (event.target.id === 'test-subject' && event.key === 'Enter') { event.preventDefault(); if (!$('#generate-style').disabled) generateFromPrompt(); }
+});
 function generateFromPrompt() {
   const image = selectedImage; if (!image || generating.has(image.id)) return;
   const prompt = promptText($('#panel-style-prompt'));
@@ -981,7 +994,8 @@ function renderGenerationDialog() {
   const target = g.target ?? 70;
   const live = openAttempt === 'live' && !!retryState(g);
   const n = live || openAttempt === 'live' || openAttempt < 0 || openAttempt >= g.attempts.length ? g.attempts.length - 1 : openAttempt;
-  const a = g.attempts[n], before = g.attempts[n - 1];
+  // A retry compares with the attempt it reworked; older attempts with the one before.
+  const a = g.attempts[n], base = a.basedOn ?? n - 1, before = g.attempts[base];
   const best = g.attempts.reduce((top, x, i) => x.similarity > g.attempts[top].similarity ? i : top, 0);
   const date = new Date(g.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   const applied = stylePromptOf(a.prompt) === selectedImage.stylePrompt;
@@ -996,7 +1010,7 @@ function renderGenerationDialog() {
       <div class="generation-compare">
         <figure class="attempt"><button class="attempt-image" data-generated aria-label="View the original larger"><img src="${imageURL(selectedImage)}" alt="Original reference"></button><figcaption><strong>Original</strong></figcaption></figure>
         <figure class="attempt"><button class="attempt-image" data-generated aria-label="View attempt ${n + 1} larger"><img src="/images/generated/${escape(a.filename)}" alt="Generated in attempt ${n + 1}"></button>
-          <figcaption><strong class="${a.similarity >= target ? '' : 'match-low'}">${a.similarity}% style match</strong>${before ? `<span>${signed(a.similarity - before.similarity)} from attempt ${n}</span>` : '<span>Prompt as written</span>'}</figcaption></figure>
+          <figcaption><strong class="${a.similarity >= target ? '' : 'match-low'}">${a.similarity}% style match</strong>${before ? `<span>${signed(a.similarity - before.similarity)} from attempt ${base + 1}</span>` : '<span>Prompt as written</span>'}</figcaption></figure>
       </div>
       ${n === g.attempts.length - 1 && g.error ? `<p class="error">${escape(g.error)}</p>` : ''}
       <div class="generation-notes">
@@ -1059,7 +1073,8 @@ function renderRetryStatus() {
   const full = g.attempts.length >= MAX_TEST_ATTEMPTS;
   const failure = !running ? retryErrors.get(g.id) : null;
   button.disabled = !!running || otherJob || full;
-  $('#retry-label').textContent = running === 'queued' ? 'Queued' : running ? 'Trying again…' : 'Try again';
+  const from = viewedAttempt(g);
+  $('#retry-label').textContent = running === 'queued' ? 'Queued' : running ? 'Trying again…' : from === g.attempts.length - 1 ? 'Try again' : `Try again from attempt ${from + 1}`;
   button.title = full ? `A test keeps at most ${MAX_TEST_ATTEMPTS} attempts. Start a new test from the prompt tab.` : 'Refines the newest prompt, generates once more and compares. Takes a few minutes and uses your Codex allowance.';
   const status = $('#retry-status');
   status.textContent = running ? GENERATE_STEPS[running] || 'Working…' : failure || (full ? `${MAX_TEST_ATTEMPTS} attempts, the most a test keeps` : otherJob ? 'Another test is running for this image' : '');
@@ -1085,13 +1100,17 @@ function selectAttempt(value) {
   openAttempt = value === 'live' ? 'live' : Number(value);
   renderGenerationDialog(); $(`#attempt-tab-${value}`)?.focus();
 }
+// The attempt the open tab shows (the newest when the live tab or nothing specific is open).
+const viewedAttempt = g => Number.isInteger(openAttempt) && openAttempt >= 0 && openAttempt < g.attempts.length ? openAttempt : g.attempts.length - 1;
+// Try again reworks the attempt being viewed, so a weaker latest attempt need not be the starting point.
 function retryGeneration(generation) {
   const imageId = selectedImage.id;
   if (generating.has(imageId)) return;
+  const from = viewedAttempt(generation);
   retryErrors.delete(generation.id); generating.set(imageId, 'queued'); retrying.set(imageId, generation.id); liveJobs.delete(imageId);
   openAttempt = 'live'; markGenerating(); renderGenerationDialog(); focusAttemptTab();
   sendJob({ id: newJobId(), kind: 'generate', imageId, generationId: generation.id, live: true },
-    `/api/images/${encodeURIComponent(imageId)}/generations/${encodeURIComponent(generation.id)}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    `/api/images/${encodeURIComponent(imageId)}/generations/${encodeURIComponent(generation.id)}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from }) });
 }
 $('#generation-content').addEventListener('keydown', event => {
   const tab = event.target.closest('[data-attempt]');

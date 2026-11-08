@@ -680,7 +680,13 @@ dialog{border-radius:8px}
    and a dialog per test with the original, the attempts and the reasoning. */
 .generate-row{display:grid;gap:12px;margin-top:6px;flex:none}
 .generate-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 16px}
-.generate-bar .field-hint{margin:0}
+.subject-field{display:flex;align-items:center;gap:10px;flex:1 1 220px;min-width:0}
+.subject-field span{font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);flex:none}
+#test-subject{flex:1;min-width:0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;padding:5px 0;font-size:13px;color:var(--ink)}
+#test-subject::placeholder{color:var(--muted)}
+#test-subject:hover{border-bottom-color:color-mix(in srgb,var(--ink) 30%,transparent)}
+#test-subject:focus-visible{outline:none;border-bottom-color:var(--ink)}
+.prompt-slot.edited{color:var(--ink);font-weight:500}
 .test-button{display:inline-flex;align-items:center;gap:6px;min-height:32px;color:var(--ink);font-size:13px;white-space:nowrap}
 .test-button .icon{width:16px;height:16px}
 .test-button:disabled{opacity:1;color:var(--muted);text-decoration:none}

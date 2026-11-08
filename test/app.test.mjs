@@ -213,8 +213,10 @@ test('test generations retry once below the target, keep both attempts and their
   let response = await generate('[a lighthouse] thick ink lines');
   assert.equal(response.status, 200);
   let generation = (await response.json()).images.find(i => i.id === image.id).generations[0];
-  assert.deepEqual(prompts, ['[a lighthouse] thick ink lines', '[a lighthouse] thick ink lines, heavier tapering lines\n\nColor palette: dominant #FFFFFF.']);
+  // The generator gets the subject without brackets; the stored attempts keep them.
+  assert.deepEqual(prompts, ['a lighthouse. thick ink lines', 'a lighthouse. thick ink lines, heavier tapering lines\n\nColor palette: dominant #FFFFFF.']);
   assert.equal(generation.attempts.length, 2);
+  assert.equal(generation.attempts[0].prompt, '[a lighthouse] thick ink lines');
   assert.deepEqual(generation.attempts.map(a => a.similarity), [41, 83], 'similarity is the mean of the six trait scores');
   assert.equal(generation.attempts[0].change, null);
   assert.equal(generation.attempts[1].change, 'Asked for heavier lines.');
@@ -235,7 +237,7 @@ test('test generations retry once below the target, keep both attempts and their
 
   // Try again refines the newest attempt's prompt, knowing every earlier attempt, and appends one more attempt.
   prompts.length = 0; scores = [90];
-  const retry = (id, jobId) => fetch(`${base}/api/images/${image.id}/generations/${id}/retry`, { method: 'POST', headers: jobId ? { ...headers, 'X-Job-Id': jobId } : headers, body: '{}' });
+  const retry = (id, jobId, payload = {}) => fetch(`${base}/api/images/${image.id}/generations/${id}/retry`, { method: 'POST', headers: jobId ? { ...headers, 'X-Job-Id': jobId } : headers, body: JSON.stringify(payload) });
   response = await retry(generation.id, 'retry-job-0001');
   assert.equal(response.status, 200);
   // The job carries live progress for the page to follow: reasoning lines, the reworked prompt, the judged attempt.
@@ -245,12 +247,22 @@ test('test generations retry once below the target, keep both attempts and their
   assert.deepEqual(live.judged.map(j => j.similarity), [91]);
   generation = (await response.json()).images.find(i => i.id === image.id).generations[0];
   assert.equal(generation.attempts.length, 3);
-  assert.equal(prompts.length, 1); assert.ok(prompts[0].startsWith(generation.attempts[1].prompt), 'the retry starts from the newest prompt');
+  assert.equal(prompts.length, 1); assert.ok(prompts[0].startsWith(generation.attempts[1].prompt.replace('[a lighthouse] ', 'a lighthouse. ')), 'the retry starts from the newest prompt');
   assert.deepEqual(histories.at(-1), [41, 83]);
   assert.equal(generation.attempts[2].similarity, 91); assert.equal(generation.attempts[2].change, 'Asked for heavier lines.');
+  assert.equal(generation.attempts[2].basedOn, 1, 'without a choice, the newest attempt is reworked');
+  // The attempt being viewed can be reworked instead of the newest; out-of-range choices are rejected.
+  prompts.length = 0; scores = [55];
+  response = await retry(generation.id, null, { from: 0 });
+  assert.equal(response.status, 200);
+  generation = (await response.json()).images.find(i => i.id === image.id).generations[0];
+  assert.equal(generation.attempts[3].basedOn, 0);
+  assert.ok(prompts[0].startsWith('a lighthouse. thick ink lines, heavier tapering lines'), 'the retry starts from the chosen attempt');
+  assert.equal(prompts[0].includes('heavier tapering lines, heavier tapering lines'), false);
+  for (const from of [9, -1, 1.5, 'x']) assert.equal((await retry(generation.id, null, { from })).status, 400);
   // A test keeps at most eight attempts; unknown tests are rejected.
-  scores = [50, 50, 50, 50, 50];
-  for (let n = 0; n < 5; n++) assert.equal((await retry(generation.id)).status, 200);
+  scores = [50, 50, 50, 50];
+  for (let n = 0; n < 4; n++) assert.equal((await retry(generation.id)).status, 200);
   response = await retry(generation.id);
   assert.equal(response.status, 400); assert.match((await response.json()).error, /at most 8 attempts/);
   assert.equal((await stored()).generations[0].attempts.length, 8);
