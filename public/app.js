@@ -307,7 +307,7 @@ let heroIndex = 0; // last settled slide, used to keep position when the window 
 function openLightbox(index) {
   const image = styles.find(s => s.id === selectedStyle)?.images[index]; if (!image) return;
   const img = $('#lightbox-image');
-  delete $('#lightbox').dataset.generated;
+  delete $('#lightbox').dataset.generated; lightboxFollow = null;
   img.alt = image.originalName;
   img.onload = fitLightbox;
   img.src = imageURL(image);
@@ -1476,7 +1476,7 @@ function liveCompare(state, step, art) {
   const shown = art || (base ? `<img class="live-base" src="/images/generated/${escape(base.filename)}" alt="">` : '');
   return `<div class="generation-compare">
       <figure class="attempt"><button class="attempt-image" data-generated aria-label="View the original larger"><img src="${imageURL(selectedImage)}" alt="Original reference"></button><figcaption><strong>Original</strong></figcaption></figure>
-      <figure class="attempt"><div class="attempt-image live-image${art ? '' : ' waiting'}">${shown}${art ? '' : `<span class="live-badge">${escape(now)}<i></i></span>`}</div>
+      <figure class="attempt">${art ? `<button class="attempt-image live-image" data-generated aria-label="View the drawing larger">${shown}</button>` : `<div class="attempt-image live-image waiting">${shown}<span class="live-badge">${escape(now)}<i></i></span></div>`}
         <figcaption><strong>Attempt ${(g?.attempts.length || 0) + 1}</strong><span>${base ? `Reworking attempt ${g.attempts.indexOf(base) + 1}` : 'In progress'}</span></figcaption></figure>
     </div>`;
 }
@@ -1670,6 +1670,8 @@ function closeGenerationView(fromHistory = false) {
   $('#tests')?.querySelector(`[data-open-generation="${CSS.escape(openGenerationId || '')}"]`)?.focus({ preventScroll: true });
   if (!fromHistory && history.state?.artbook === 'test') { skipPop = true; history.back(); }
 }
+// The drawing in progress over the reference opens enlarged too (the panel is rendered later, so the click is delegated).
+document.addEventListener('click', event => { const art = event.target.closest('#hero-live-art'); if (art?.src) openGeneratedLightbox(art.parentElement); });
 $('#generation-back').onclick = () => evidenceView ? closeEvidence() : closeGenerationView();
 $('#style-dialog').addEventListener('cancel', event => {
   if (!generationOpen()) return;
@@ -1860,8 +1862,20 @@ async function resolveReview(button) {
     toast(action === 'dismiss' ? 'Suggestion dismissed.' : field === 'tags' ? 'Tags updated.' : field === 'name' ? `Collection renamed to “${style.name}”.` : `Moved to “${style.name}”.`);
   } catch (error) { toast(error.message); renderReview(true); }
 }
+// The enlarged view keeps following the picture it was opened from, so a replay, a stage change or a drawing in
+// progress goes on playing in it. When a finished drawing replaces the live one, it follows the finished drawing.
+let lightboxFollow = null; // id of the img the lightbox mirrors
+function syncLightbox() {
+  if (!lightboxFollow || !$('#lightbox').open) return;
+  const source = $(`#${lightboxFollow}`) || (lightboxFollow === 'live-art' ? $('#attempt-art') : null);
+  const img = $('#lightbox-image');
+  if (source?.src && img.src !== source.src) img.src = source.src;
+}
+new MutationObserver(syncLightbox).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
+$('#lightbox').addEventListener('close', () => { lightboxFollow = null; });
 function openGeneratedLightbox(button) {
   const img = $('#lightbox-image'), source = button.querySelector('img');
+  lightboxFollow = source.id || null;
   img.alt = source.alt; img.onload = fitLightbox; img.src = source.src;
   if (img.complete) fitLightbox();
   const tint = $('#style-dialog').style.getPropertyValue('--tint');

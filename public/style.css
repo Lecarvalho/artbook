@@ -909,8 +909,10 @@ dialog{border-radius:8px}
 .process-step[aria-pressed=true] .process-thumb{outline-color:var(--ink)}
 .process-note{margin:10px 0 0;font-size:13px;line-height:1.6;color:var(--muted);max-width:640px;min-height:1.6em}
 /* The attempt in progress, beside the original: the reworked attempt dimmed under a status badge until the new one arrives. */
-.live-image{position:relative;cursor:default;aspect-ratio:4/3;display:grid;place-items:center}
+.live-image{position:relative;cursor:default;padding:0;border:0;aspect-ratio:4/3;display:grid;place-items:center}
 .live-image img{width:100%;height:100%}
+button.live-image{cursor:zoom-in}
+.hero-live img{cursor:zoom-in}
 .live-image.waiting img{opacity:.28;filter:saturate(.4)}
 .live-badge{position:absolute;display:inline-flex;align-items:center;gap:8px;padding:6px 11px;border-radius:5px;background:#0b100ebf;color:#f3f1ea;font-size:12px}
 .live-badge i{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pulse 1.2s ease-in-out infinite}
