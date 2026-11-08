@@ -664,6 +664,7 @@ async function applyJob(record, state) {
     if (record.generationId) retrying.set(record.imageId, record.generationId);
     markGenerating();
   }
+  else if (!finished && record.kind === 'review') { reviewing.set(record.imageId, state); renderReview(); }
   else if (!finished) { reidentifying.set(record.imageId, state.status === 'running' ? 'running' : 'queued'); markAnalyzing(); }
   if (!finished) { if (record.kind === 'import') importSummary(); return; }
   appliedJobs.add(record.id); untrackJob(record.id); liveRecords.delete(record.id);
@@ -692,6 +693,7 @@ async function applyJob(record, state) {
     if (record.generationId) return toast(`Attempt ${generation.attempts.length} · ${generation.attempts.at(-1).similarity}% style match.`);
     return toast(`Test generation saved · ${Math.max(...generation.attempts.map(a => a.similarity))}% style match.`);
   }
+  if (record.kind === 'review') return finishReview(record, state);
   if (record.kind === 'import') {
     if (record.preview) URL.revokeObjectURL(record.preview);
     if (state.status === 'done') await refresh();
@@ -922,6 +924,7 @@ function resumeJobs() {
   const imports = tracked.filter(j => j.kind === 'import');
   if (imports.length) { showImportPanel(); imports.forEach(record => addImportRow(record, { status: 'queued' })); }
   tracked.filter(j => j.kind === 'reclassify').forEach(record => reidentifying.set(record.imageId, 'queued'));
+  tracked.filter(j => j.kind === 'review').forEach(record => reviewing.set(record.imageId, { status: 'queued' }));
   tracked.filter(j => j.kind === 'generate').forEach(record => { generating.set(record.imageId, 'queued'); if (record.generationId) retrying.set(record.imageId, record.generationId); });
   markAnalyzing(); markGenerating();
   pollJobs();
@@ -1042,7 +1045,9 @@ const ICONS = {
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-.5a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h.5"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   trash: '<path d="M4.5 7h15M10 4h4M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/>',
-  retry: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v3.8h-3.8"/>'
+  retry: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v3.8h-3.8"/>',
+  close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>'
 };
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 const MAX_TEST_ATTEMPTS = 8; // same cap as the server
@@ -1101,8 +1106,10 @@ function renderGenerationDialog() {
       <button class="text-button dialog-action danger-action" id="delete-generation">${icon('trash')}<span>Delete test</span></button>
       <div class="retry-box"><span class="retry-status" id="retry-status" role="status"></span><span class="step-dots" id="retry-dots" aria-hidden="true" hidden></span>
         <button class="primary retry-button" id="retry-generation">${icon('retry')}<span id="retry-label">Try again</span></button></div>
-    </div>`;
+    </div>
+    <section class="review-box" id="review-box" aria-labelledby="review-title"></section>`;
   renderRetryStatus();
+  renderReview();
   $('#generation-content').querySelectorAll('.generation-prompt').forEach(colorCodes);
 }
 // The polled step of a "Try again" running for this test, or null.
@@ -1157,6 +1164,7 @@ function renderRetryStatus() {
   stepDots($('#retry-dots'), running && !liveOpen && running !== 'queued' && running !== 'running' ? running : null, true);
   $('#attempt-tab-live').hidden = !running;
   $('#delete-generation').disabled = !!running;
+  renderReview();
 }
 // Re-rendering removes the focused control; keep focus on the open tab rather than letting it fall to the close button.
 const focusAttemptTab = () => $('#generation-content [role=tab][aria-selected=true]')?.focus({ preventScroll: true });
@@ -1291,6 +1299,9 @@ $('#generation-content').addEventListener('click', async event => {
   const proof = event.target.closest('[data-evidence]');
   if (proof) return openEvidence(generation, viewedAttempt(generation), Number(proof.dataset.evidence), proof.dataset.list);
   if (event.target.closest('#retry-generation')) return retryGeneration(generation);
+  if (event.target.closest('#review-start')) return startReview();
+  const decision = event.target.closest('[data-review]');
+  if (decision) return resolveReview(decision);
   const copy = event.target.closest('[data-copy-generation]');
   if (copy) {
     try { await copyText(generation.attempts[Number(copy.dataset.copyGeneration)].prompt); toast('Prompt copied.'); }
@@ -1321,6 +1332,95 @@ $('#generation-content').addEventListener('click', async event => {
     await refresh(); reselectImage(); toast('Test generation deleted.');
   } catch (error) { remove.disabled = false; toast(error.message); }
 });
+// ---- Identification check ----
+// Codex looks at the image again with every test's critic notes and proposes changes to the style name, tags and
+// collection, each with a confidence and a reason. Nothing changes until the user applies a proposal.
+const reviewing = new Map();    // imageId -> latest polled state of its identification check
+const reviewErrors = new Map(); // imageId -> why the last check failed
+const REVIEW_FIELDS = ['name', 'tags', 'collection'];
+const REVIEW_LABELS = { name: 'Style name', tags: 'Tags', collection: 'Collection' };
+function reviewProposal(field, p, style) {
+  let change;
+  if (field === 'tags') {
+    const from = new Set(p.from || []), to = new Set(p.value);
+    change = `<span class="review-tags">${[...p.value.map(t => `<span class="${from.has(t) ? 'kept' : 'added'}">${escape(t)}</span>`), ...[...from].filter(t => !to.has(t)).map(t => `<s class="removed">${escape(t)}</s>`)].join('')}</span>`;
+  } else change = `<span class="review-from">${escape(p.from || '')}</span><span class="review-arrow" aria-label="to">→</span><strong>${escape(p.value)}</strong>`;
+  const count = style?.images.length || 1;
+  const apply = field === 'tags' ? 'Apply tags' : field === 'name' ? 'Rename collection' : p.styleId ? `Move to “${p.value}”` : 'Move to a new collection';
+  // Same rule as the server: the collection's tags follow when they are exactly this image's old tags.
+  const collectionTags = style?.tags || [], from = p.from || [];
+  const follows = count === 1 || (collectionTags.length === from.length && collectionTags.every(t => from.includes(t)));
+  const note = field === 'name' && count > 1 ? `<p class="review-note">Renames it for all ${count} images in the collection.</p>`
+    : field === 'tags' && count > 1 ? `<p class="review-note">${follows ? 'Also updates the collection’s tags, which came from this image.' : 'Changes this image’s tags only; the collection keeps its own.'}</p>` : '';
+  const done = p.state && `<p class="review-done">${icon(p.state === 'applied' ? 'check' : 'close')}${p.state === 'applied' ? 'Applied' : 'Dismissed'}</p>`;
+  return `<li class="review-item"${p.state ? ` data-state="${p.state}"` : ''}>
+      <div class="review-head"><h4>${REVIEW_LABELS[field]}</h4><span class="review-confidence" data-confidence="${escape(p.confidence)}">${escape(p.confidence)} confidence</span></div>
+      <p class="review-change">${change}</p>
+      ${p.reason ? `<p class="review-reason">${escape(p.reason)}</p>` : ''}
+      ${done || `${note}<div class="review-actions"><button class="text-button dialog-action" data-review="${field}" data-action="apply">${icon('check')}${escape(apply)}</button><button class="text-button dialog-action review-dismiss" data-review="${field}" data-action="dismiss">Dismiss</button></div>`}
+    </li>`;
+}
+function reviewSection() {
+  const image = selectedImage, style = styles.find(s => s.id === selectedStyle);
+  const live = reviewing.get(image.id), r = image.review, failure = !live && reviewErrors.get(image.id);
+  const other = !live && (generating.has(image.id) || reidentifying.has(image.id));
+  let body = '';
+  if (live) {
+    const notes = (live.log || []).map(l => `<li>${escape(l.text)}</li>`).join('');
+    body = `<ul class="live-log review-log">${notes}<li class="live-now">${live.status === 'running' ? 'Looking at the image again' : 'Waiting in line'}<i></i></li></ul>`;
+  } else if (r) {
+    const open = REVIEW_FIELDS.filter(f => r[f]?.change), held = REVIEW_FIELDS.filter(f => !r[f]?.change && r[f]?.reason);
+    body = `${r.summary ? `<p class="review-summary">${escape(r.summary)}</p>` : ''}
+      ${open.length ? `<ul class="review-list">${open.map(f => reviewProposal(f, r[f], style)).join('')}</ul>` : '<p class="review-summary">No changes suggested.</p>'}
+      ${held.length ? `<details class="review-held"><summary>What holds</summary><ul>${held.map(f => `<li><strong>${REVIEW_LABELS[f]}.</strong> ${escape(r[f].reason)}</li>`).join('')}</ul></details>` : ''}`;
+  }
+  const label = live ? (live.status === 'running' ? 'Checking…' : 'Queued') : r ? 'Check again' : 'Check identification';
+  const status = other ? 'Another job is running for this image' : r && !live ? `Checked ${new Date(r.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : '';
+  return `<h3 id="review-title">Identification check</h3>
+    <p class="review-intro">Looks at this image again with what its tests found, then suggests changes to its style name, tags and collection. Nothing changes until you apply it.</p>
+    ${body}${failure ? `<p class="error">${escape(failure)}</p>` : ''}
+    <div class="review-start"><span class="retry-status">${status}</span>
+      <button class="text-button dialog-action" id="review-start"${live || other ? ' disabled' : ''} title="Takes a minute or two and uses your Codex allowance.">${icon('search')}${label}</button></div>`;
+}
+// Rebuilt only when its content changes, so polling does not close "What holds" or reset focus.
+function renderReview(force = false) {
+  const box = $('#review-box'); if (!box || !selectedImage) return;
+  const html = reviewSection();
+  if (!force && box.dataset.source === html) return;
+  box.innerHTML = html; box.dataset.source = html;
+}
+function startReview() {
+  const imageId = selectedImage.id;
+  if (reviewing.has(imageId)) return;
+  reviewErrors.delete(imageId); reviewing.set(imageId, { status: 'queued' }); renderReview();
+  sendJob({ id: newJobId(), kind: 'review', imageId, live: true }, `/api/images/${encodeURIComponent(imageId)}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+}
+async function finishReview(record, state) {
+  reviewing.delete(record.imageId);
+  const failure = state.status === 'done' ? null : state.status === 'missing' ? 'The identification check was interrupted because Artbook restarted.'
+    : state.httpStatus === 404 ? 'Artbook is running an older version without this feature. Close it and start it again.' : state.error;
+  if (failure) reviewErrors.set(record.imageId, failure); else reviewErrors.delete(record.imageId);
+  await refresh();
+  if ($('#style-dialog').open && selectedImage?.id === record.imageId) reselectImage();
+  if (failure) return toast(failure);
+  const review = state.result?.images?.find(i => i.id === record.imageId)?.review;
+  const count = REVIEW_FIELDS.filter(f => review?.[f]?.change).length;
+  toast(count ? `Identification check: ${count} suggestion${count > 1 ? 's' : ''}.` : 'Identification check: the labels hold.');
+}
+// Applying can rename or change the collection, so the collection view is rebuilt around the image, with the test still open.
+async function resolveReview(button) {
+  const field = button.dataset.review, action = button.dataset.action, imageId = selectedImage.id;
+  $('#review-box').querySelectorAll('button').forEach(b => { b.disabled = true; });
+  try {
+    const style = await api(`/api/images/${encodeURIComponent(imageId)}/review/${field}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+    const keep = openAttempt;
+    await refresh();
+    selectedImage = null;
+    showStyle(style.id, Math.max(0, style.images.findIndex(i => i.id === imageId)));
+    openAttempt = keep; renderGenerationDialog();
+    toast(action === 'dismiss' ? 'Suggestion dismissed.' : field === 'tags' ? 'Tags updated.' : field === 'name' ? `Collection renamed to “${style.name}”.` : `Moved to “${style.name}”.`);
+  } catch (error) { toast(error.message); renderReview(true); }
+}
 function openGeneratedLightbox(button) {
   const img = $('#lightbox-image'), source = button.querySelector('img');
   img.alt = source.alt; img.onload = fitLightbox; img.src = source.src;

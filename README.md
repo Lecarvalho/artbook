@@ -10,6 +10,7 @@ https://github.com/user-attachments/assets/7d09adbe-3a3d-403f-822d-6c361c87af74
 - **Recognizes known references** (a film, a series, an artist) when it can, and keeps the source link.
 - **Writes two prompts** per image: one for a similar image, one for the same style with a new subject.
 - **Tests the style prompt**: "Test this prompt" makes an image from the prompt alone (not the reference), rates how closely its style matches the original, and, below 70%, refines the prompt and tries once more. "Try again" in the test reworks the prompt of the attempt you are viewing (aware of how every attempt scored) for another attempt, up to 8 per test; each attempt gets its own tab. Key phrases in the critique, and in what already works, link to side-by-side crops of the original and the attempt, so you can see what it means. Results and reasoning are saved with the image; delete them any time, or make a refined prompt the image's style prompt. This uses more of your Codex allowance than identifying an image.
+- **Checks the identification**: in a test, "Check identification" looks at the image again with what its tests found and suggests changes to its style name, tags and collection, each with a confidence and a reason. Nothing changes until you apply a suggestion.
 - **Flags AI-generated images** when the file or a visible watermark says so.
 - **Finds more**: search keywords and links to YouTube, Pinterest and Google Images.
 

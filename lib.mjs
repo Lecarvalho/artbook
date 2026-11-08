@@ -113,6 +113,40 @@ export function validateGeneration(value) {
   if (!attempts.length) throw new Error('A generation needs at least one image.');
   return { id: typeof value.id === 'string' && /^[\w-]{8,64}$/.test(value.id) ? value.id : randomUUID(), createdAt: text(value.createdAt, 40) || new Date().toISOString(), target: Number.isFinite(value.target) ? value.target : null, attempts, error: text(value.error, 300) };
 }
+// An identification check: proposed changes to the style name, tags and collection of one image, each with a
+// confidence and a reason. Only real changes are kept as proposals; the user applies or dismisses each one.
+const CONFIDENCE = ['high', 'medium', 'low'];
+export function validateReview(raw, { style, image, styles }) {
+  const field = (value, extra) => ({ change: true, confidence: CONFIDENCE.includes(value?.confidence) ? value.confidence : 'low', reason: text(value?.reason, 300), state: null, ...extra });
+  const keep = value => ({ change: false, reason: text(value?.reason, 300) });
+  let name = keep(raw?.name);
+  if (raw?.name?.change) {
+    try {
+      const value = validateStyle({ name: raw.name.value, keywords: ['x'], tags: [] }).name;
+      if (normalize(value) !== normalize(style.name)) name = field(raw.name, { from: style.name, value });
+    } catch {}
+  }
+  let tags = keep(raw?.tags);
+  if (raw?.tags?.change) {
+    try {
+      const value = validateTags((Array.isArray(raw.tags.value) ? raw.tags.value : []).filter(t => typeof t === 'string' && t.trim()).slice(0, 8));
+      const from = image.tags || [];
+      if (value.length >= 3 && (value.length !== from.length || value.some(t => !from.includes(t)))) tags = field(raw.tags, { from, value });
+    } catch {}
+  }
+  let collection = keep(raw?.collection);
+  if (raw?.collection?.change) {
+    const target = styles.find(s => s.id === raw.collection.styleId && s.id !== style.id);
+    // A new collection takes the proposed name, so it needs one.
+    if (target) collection = field(raw.collection, { from: style.name, styleId: target.id, value: target.name });
+    else if (raw.collection.styleId === null && name.change) collection = field(raw.collection, { from: style.name, styleId: null, value: name.value });
+  }
+  return { createdAt: new Date().toISOString(), styleId: style.id, name, tags, collection, summary: text(raw?.summary, 300) };
+}
+export const REVIEW_FIELDS = ['name', 'tags', 'collection'];
+const sameTags = (a = [], b = []) => a.length === b.length && a.every(t => b.includes(t));
+export const tagsFollow = (style, from) => style.images.length === 1 || sameTags(style.tags || [], from || []);
+
 export function validateStyle(value) {
   if (!value || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 80 || /[\r\n.!?]/.test(value.name)) throw new Error('Use a short style name, up to 80 characters, without sentences.');
   if (!Array.isArray(value.keywords) || value.keywords.length < 1 || value.keywords.length > 8 || value.keywords.some(k => typeof k !== 'string' || !k.trim() || k.length > 100)) throw new Error('Add 1–8 search keywords, each up to 100 characters.');
@@ -223,6 +257,51 @@ export async function createLibrary(directory) {
       image.stylePrompt = prompt;
       return style;
     }),
+    // Stores the latest identification check of an image, replacing an earlier one.
+    setReview: (imageId, review) => change(next => {
+      const style = next.styles.find(s => s.images.some(i => i.id === imageId));
+      if (!style) throw new Error('Image not found.');
+      style.images.find(i => i.id === imageId).review = review;
+      return style;
+    }),
+    // Applies or dismisses one proposal of the identification check. Name and collection proposals refer to the
+    // collection the image was in when checked, so they are refused once the image has moved.
+    resolveReview: (imageId, fieldName, action) => change(next => {
+      const source = next.styles.find(s => s.images.some(i => i.id === imageId));
+      if (!source) throw new Error('Image not found.');
+      const image = source.images.find(i => i.id === imageId);
+      const review = image.review, proposal = review?.[fieldName];
+      if (!REVIEW_FIELDS.includes(fieldName) || !proposal?.change || proposal.state) throw new Error('This suggestion is no longer open.');
+      if (!['apply', 'dismiss'].includes(action)) throw new Error('Choose apply or dismiss.');
+      if (action === 'dismiss') { proposal.state = 'dismissed'; return source; }
+      if (fieldName !== 'tags' && source.id !== review.styleId) throw new Error('This image changed collection after the check. Run the check again.');
+      let result = source;
+      if (fieldName === 'tags') {
+        image.tags = proposal.value;
+        // The collection's tags follow when they came from this image: it is the only image, or they are exactly its old tags.
+        if (tagsFollow(source, proposal.from)) source.tags = proposal.value;
+      } else if (fieldName === 'name') {
+        source.name = validateStyle({ name: proposal.value, keywords: source.keywords, tags: source.tags || [] }).name;
+        // Renaming the collection already gives the image this name; a new collection with the same name is moot.
+        if (review.collection.change && review.collection.styleId === null && !review.collection.state) review.collection.state = 'dismissed';
+      } else {
+        let target = proposal.styleId ? next.styles.find(s => s.id === proposal.styleId) : null;
+        if (proposal.styleId && !target) throw new Error('That collection no longer exists. Run the check again.');
+        if (!target && source.images.length === 1) {
+          // Its only image moving to a new collection is the same as renaming this one; no empty collection is left behind.
+          source.name = validateStyle({ name: proposal.value, keywords: source.keywords, tags: source.tags || [] }).name;
+          target = source;
+        }
+        if (!target) { target = { id: randomUUID(), ...validateStyle({ name: proposal.value, keywords: source.keywords, tags: image.tags || [] }), images: [] }; next.styles.push(target); }
+        if (target !== source) { source.images = source.images.filter(i => i.id !== imageId); target.images.push(image); }
+        // The name proposal described this image's own style: a new collection uses it; joining an existing one makes it moot.
+        if (review.name.change && !review.name.state) review.name.state = proposal.styleId ? 'dismissed' : 'applied';
+        review.styleId = target.id;
+        result = target;
+      }
+      proposal.state = 'applied';
+      return result;
+    }),
     removeGeneration: (imageId, generationId) => change(next => {
       const style = next.styles.find(s => s.images.some(i => i.id === imageId));
       const image = style?.images.find(i => i.id === imageId);
@@ -243,6 +322,7 @@ export async function createLibrary(directory) {
       if (!target) { target = { id: randomUUID(), ...clean, images: [] }; next.styles.push(target); }
       const image = source.images.find(i => i.id === imageId);
       image.tags = clean.tags;
+      delete image.review; // a check of the previous identification no longer applies
       if (input.details) Object.assign(image, validateImageDetails(input.details));
       if ('aiOrigin' in input) image.aiOrigin = validateAiOrigin(input.aiOrigin);
       if (source.id !== target.id) {

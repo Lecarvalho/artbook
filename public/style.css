@@ -793,6 +793,44 @@ dialog{border-radius:8px}
 .retry-box .step-dots{margin:0}
 .retry-button{min-height:36px;padding:8px 16px;gap:8px}
 .retry-button .icon{width:16px;height:16px}
+/* Identification check: below the test, its own section; each proposal shows the change, its confidence and reason. */
+.review-box{margin-top:28px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;line-height:1.6}
+.review-box>h3{margin:0 0 6px;font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.review-intro{margin:0 0 14px;max-width:640px;color:var(--muted)}
+.review-summary{margin:0 0 12px;max-width:640px}
+.review-log{margin:0 0 12px}
+.review-list{list-style:none;margin:0 0 12px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.review-item{min-width:0;padding:12px 14px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.review-item[data-state]{background:none}
+.review-item[data-state] .review-change,.review-item[data-state] .review-reason{color:var(--muted)}
+.review-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px}
+.review-head h4{margin:0;font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--ink)}
+.review-confidence{font:var(--caption);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.review-confidence[data-confidence=high]{color:var(--ink)}
+.review-change{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;margin:0 0 6px;overflow-wrap:anywhere}
+.review-from{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
+.review-arrow{color:var(--muted)}
+.review-change strong{font-weight:600}
+.review-tags{display:flex;flex-wrap:wrap;gap:4px 6px}
+.review-tags>*{padding:1px 7px;border-radius:4px;border:1px solid var(--line);font-size:12px}
+.review-tags .kept{color:var(--muted)}
+.review-tags .added{border-color:var(--ink);color:var(--ink);font-weight:500}
+.review-tags .removed{color:var(--muted);border-style:dashed}
+.review-reason{margin:0 0 8px;color:var(--muted)}
+.review-note{margin:0 0 4px;font-size:12px;color:var(--muted)}
+.review-actions{display:flex;flex-wrap:wrap;gap:2px 18px}
+.review-actions .dialog-action{white-space:normal;text-align:left}
+.review-dismiss{color:var(--muted)}
+.review-done{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--muted)}
+.review-done .icon{width:14px;height:14px}
+.review-held{margin:0 0 12px}
+.review-held summary{cursor:pointer;color:var(--muted);font-size:12px;width:max-content}
+.review-held summary:hover{color:var(--ink)}
+.review-held ul{margin:8px 0 0;padding-left:18px;color:var(--muted)}
+.review-held strong{color:var(--ink);font-weight:500}
+.review-box>.error{margin:0 0 12px}
+.review-start{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px}
+.review-start .retry-status:empty+*{margin-left:0}
 @media(min-width:900px){
   .style-info .image-prompts:has(#generate-row:not([hidden])){min-height:190px}
   .style-info .image-prompts:has(#generate-row:not([hidden]) :is(#tests,#generate-progress):not([hidden])){min-height:240px}
