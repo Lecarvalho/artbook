@@ -850,6 +850,12 @@ dialog{border-radius:8px}
 .note-form-actions{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-top:10px}
 .note-form-actions .primary{min-height:36px;padding:8px 16px}
 .note-empty{margin:4px 0 0;color:var(--muted)}
+.limit-note{display:block;font-size:12px;color:var(--muted)}
+.h3-aside{margin-left:6px;font-weight:400;letter-spacing:.04em;text-transform:none}
+.defects .defect-tag{margin-left:8px;white-space:nowrap}
+.defect-tag{font-size:12px;color:var(--muted)}
+.defect-tag.limit{color:var(--danger)}
+.plateau{margin:22px 0 0;padding:10px 14px;border-left:2px solid var(--ink);background:var(--accent-soft);border-radius:0 6px 6px 0;font-size:13px;line-height:1.6;max-width:720px}
 .evidence-single{grid-template-columns:minmax(0,640px)}
 .evidence-note{margin:0 0 18px;font-size:13px;line-height:1.6;color:var(--muted);max-width:640px}
 .evidence-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}

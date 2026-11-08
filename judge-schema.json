@@ -125,6 +125,85 @@
       "items": {
         "type": "string"
       }
+    },
+    "defects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "anatomy",
+              "merged",
+              "text",
+              "perspective",
+              "artifact",
+              "other"
+            ]
+          },
+          "box": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "w": {
+                "type": "number"
+              },
+              "h": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "w",
+              "h"
+            ]
+          },
+          "fixable": {
+            "type": "string",
+            "enum": [
+              "likely",
+              "unlikely"
+            ]
+          }
+        },
+        "required": [
+          "note",
+          "kind",
+          "box",
+          "fixable"
+        ]
+      }
+    },
+    "limits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "difference": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "difference",
+          "reason"
+        ]
+      }
     }
   },
   "required": [
@@ -132,6 +211,8 @@
     "differences",
     "strengths",
     "evidence",
-    "summary"
+    "summary",
+    "defects",
+    "limits"
   ]
 }

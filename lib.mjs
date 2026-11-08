@@ -66,7 +66,24 @@ export function validateJudgement(value) {
     ...validateEvidence((Array.isArray(value?.evidence) ? value.evidence : []).filter(e => (e?.list ?? 'differences') === 'differences'), differences.values, differences.kept, 'differences'),
     ...validateEvidence((Array.isArray(value?.evidence) ? value.evidence : []).filter(e => e?.list === 'strengths'), strengths.values, strengths.kept, 'strengths'),
   ];
-  return { similarity, scores, differences: differences.values, strengths: strengths.values, evidence, summary: text(value?.summary, 400) };
+  // Defects and limits are information only: they never change the style score.
+  const defects = (Array.isArray(value?.defects) ? value.defects : []).map(validateDefect).filter(Boolean).slice(0, 5);
+  const limits = [];
+  for (const l of Array.isArray(value?.limits) ? value.limits : []) {
+    const at = differences.kept.indexOf(l?.difference), reason = text(l?.reason, 160);
+    if (at >= 0 && reason && !limits.some(x => x.difference === at)) limits.push({ difference: at, reason });
+  }
+  return { similarity, scores, differences: differences.values, strengths: strengths.values, evidence, summary: text(value?.summary, 400), ...(defects.length ? { defects } : {}), ...(limits.length ? { limits } : {}) };
+}
+// A non-style defect the judge saw in the generated image (a mangled hand, merged objects, garbled text, broken
+// perspective, a rendering glitch), with where it is and whether another try will likely fix it.
+export const DEFECT_KINDS = ['anatomy', 'merged', 'text', 'perspective', 'artifact', 'other'];
+function validateDefect(d) {
+  const note = text(d?.note, 200);
+  if (!note || !['x', 'y', 'w', 'h'].every(k => Number.isFinite(Number(d?.box?.[k])))) return null;
+  const n = k => Math.max(0, Math.min(1, Number(d.box[k])));
+  const w = Math.max(0.04, n('w')), h = Math.max(0.04, n('h'));
+  return { note, kind: DEFECT_KINDS.includes(d.kind) ? d.kind : 'other', box: { x: Math.min(n('x'), 1 - w), y: Math.min(n('y'), 1 - h), w, h }, fixable: d.fixable === 'unlikely' ? 'unlikely' : 'likely' };
 }
 // Where the critic looked: for a note (a difference or a strength), the words that name the element and a region on
 // each image (fractions of width and height). A phrase must appear in its note; regions are clamped inside the image.

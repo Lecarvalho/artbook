@@ -1209,8 +1209,9 @@ function renderGenerationDialog() {
         <section>
           ${change ? `<h3>Adjustments</h3><p>${escape(change)}</p>` : ''}
           <h3>Critique</h3>${a.summary ? `<p>${escape(a.summary)}</p>` : ''}
-          ${a.differences.length ? `<ul>${a.differences.map((d, i) => `<li>${evidenceText(d, i, a, 'differences')}</li>`).join('')}</ul>` : ''}
+          ${a.differences.length ? `<ul>${a.differences.map((d, i) => { const limit = a.limits?.find(l => l.difference === i); return `<li>${evidenceText(d, i, a, 'differences')}${limit ? `<span class="limit-note">Probably a model limit: ${escape(limit.reason)}</span>` : ''}</li>`; }).join('')}</ul>` : ''}
           ${a.strengths?.length ? `<h3>What works</h3><ul class="strengths">${a.strengths.map((d, i) => `<li>${evidenceText(d, i, a, 'strengths')}</li>`).join('')}</ul>` : ''}
+          ${a.defects?.length ? `<h3>Defects <span class="h3-aside">not style, not scored</span></h3><ul class="defects">${a.defects.map((d, i) => `<li><button class="evidence-link" data-defect="${i}" aria-haspopup="dialog" title="Show where">${escape(d.note)}${icon('search')}</button><span class="defect-tag${d.fixable === 'unlikely' ? ' limit' : ''}">${d.fixable === 'unlikely' ? 'Probably a model limit' : 'Likely fixable next try'}</span></li>`).join('')}</ul>` : ''}
         </section>
         <section>
           <h3>Trait scores</h3>
@@ -1228,6 +1229,7 @@ function renderGenerationDialog() {
         </section>
       </div>`}
     </div>
+    ${!live && plateaued(g) ? `<p class="plateau" role="note">The last ${PLATEAU_RUN} attempts are within ${PLATEAU_POINTS} points of each other, so more tries alone probably won't move the match much. A note on what's off, an edited prompt or the other test mode may help more.</p>` : ''}
     <div class="generation-actions">
       <button class="text-button dialog-action danger-action" id="delete-generation">${icon('trash')}<span>Delete test</span></button>
       <div class="retry-box"><span class="retry-status" id="retry-status" role="status"></span><span class="step-dots" id="retry-dots" aria-hidden="true" hidden></span>
@@ -1239,6 +1241,12 @@ function renderGenerationDialog() {
   $('#generation-content').querySelectorAll('.generation-prompt').forEach(colorCodes);
   placeNoteBoxes();
   $('#generation-content').querySelectorAll('.attempt-image img').forEach(img => { if (img.complete) placeNoteLayer(img); img.addEventListener('load', () => placeNoteLayer(img)); });
+}
+// The loop has stalled when the last attempts score within a few points of each other (information only).
+const PLATEAU_RUN = 3, PLATEAU_POINTS = 3;
+function plateaued(g) {
+  const last = g.attempts.slice(-PLATEAU_RUN).map(x => x.similarity);
+  return last.length === PLATEAU_RUN && Math.max(...last) - Math.min(...last) <= PLATEAU_POINTS;
 }
 // ---- Your notes ----
 // The user marks what they see: a box on either picture (drag, or tap for a small one) with a short note, or a general
@@ -1586,21 +1594,24 @@ function closeEvidence() {
   evidenceView = null;
   renderGenerationDialog();
   viewScroller().scrollTop = evidenceScroll;
-  $(Number.isInteger(from.note) ? `#generation-content [data-note-show="${from.note}"]` : `#generation-content [data-evidence="${from.index}"][data-list="${from.list}"]`)?.focus({ preventScroll: true });
+  $(Number.isInteger(from.defect) ? `#generation-content [data-defect="${from.defect}"]` : Number.isInteger(from.note) ? `#generation-content [data-note-show="${from.note}"]` : `#generation-content [data-evidence="${from.index}"][data-list="${from.list}"]`)?.focus({ preventScroll: true });
 }
-function openNoteEvidence(n, index) {
+function openNoteEvidence(n, index, kind = 'note') {
   evidenceScroll = viewScroller().scrollTop;
-  evidenceView = { n, note: index };
+  evidenceView = { n, [kind]: index };
   renderGenerationDialog();
   viewScroller().scrollTop = 0;
   $('#generation-back').focus({ preventScroll: true });
 }
 // A note up close: only the picture it was written on, cropped to its box.
 async function renderNoteEvidence(generation) {
-  const { n, note: index } = evidenceView, attempt = generation.attempts[n], note = notesOf(attempt)[index];
+  const { n } = evidenceView, attempt = generation.attempts[n], defect = Number.isInteger(evidenceView.defect);
+  const index = defect ? evidenceView.defect : evidenceView.note;
+  const source = defect ? attempt.defects?.[index] : notesOf(attempt)[index];
+  const note = source && (defect ? { on: 'generated', box: source.box, text: `${source.note} · ${source.fixable === 'unlikely' ? 'Probably a model limit' : 'Likely fixable next try'}` } : source);
   if (!note?.box) { evidenceView = null; return renderGenerationDialog(); }
   const label = note.on === 'original' ? 'Original' : `Attempt ${n + 1}`;
-  $('#generation-title').textContent = `Your note ${index + 1}`;
+  $('#generation-title').textContent = defect ? 'Defect' : `Your note ${index + 1}`;
   $('#generation-back-label').textContent = `Attempt ${n + 1}`;
   $('#generation-content').innerHTML = `
     <p class="evidence-note">${escape(note.text)}</p>
@@ -1615,7 +1626,7 @@ async function renderNoteEvidence(generation) {
   } catch { $('#generation-content').insertAdjacentHTML('beforeend', '<p class="error">The image could not be loaded.</p>'); }
 }
 async function renderEvidence(generation) {
-  if (Number.isInteger(evidenceView.note)) return renderNoteEvidence(generation);
+  if (Number.isInteger(evidenceView.note) || Number.isInteger(evidenceView.defect)) return renderNoteEvidence(generation);
   const { n, index, list } = evidenceView, attempt = generation.attempts[n], proof = proofFor(attempt, list, index);
   if (!proof) { evidenceView = null; return renderGenerationDialog(); }
   $('#generation-title').textContent = proof.phrase.charAt(0).toUpperCase() + proof.phrase.slice(1);
@@ -1712,6 +1723,8 @@ $('#generation-content').addEventListener('click', async event => {
   if (save) return submitNote(generation, n, save);
   const edit = event.target.closest('[data-note-edit]');
   if (edit) return startNote(generation.attempts[n], Number(edit.dataset.noteEdit));
+  const defect = event.target.closest('[data-defect]');
+  if (defect) return openNoteEvidence(n, Number(defect.dataset.defect), 'defect');
   const show = event.target.closest('[data-note-show]');
   if (show) return openNoteEvidence(n, Number(show.dataset.noteShow));
   const drop = event.target.closest('[data-note-delete]');
