@@ -797,7 +797,7 @@ export async function makeApp({ dataDir = join(root, 'data'), analyze = analyzeI
         if (!Number.isInteger(from) || from < 0 || from >= found.attempts.length) throw new Error('Choose an attempt to rework.');
         if (busy(imageId)) return send({ error: busy(imageId) }, 409);
         const vectorRetry = found.attempts[from].kind === 'vector';
-        const job = await enqueue(req, { kind: 'generate', imageId, generationId, step: 'queued', ...(vectorRetry ? { mode: 'vector' } : {}) }, async job => {
+        const job = await enqueue(req, { kind: 'generate', imageId, generationId, from, step: 'queued', ...(vectorRetry ? { mode: 'vector' } : {}) }, async job => {
           const codex = await status();
           if (!codex.connected) throw new Error(codex.message);
           const image = find();

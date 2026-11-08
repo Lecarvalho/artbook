@@ -647,6 +647,7 @@ const reidentifying = new Map(); // imageId -> 'queued' | 'running'
 const generateErrors = new Map(); // imageId -> why the last test generation failed, shown under the button
 const retryErrors = new Map();    // generationId -> why the last "Try again" failed, shown in the test dialog
 const retrying = new Map();       // imageId -> generationId while a "Try again" for that test runs
+const retryFrom = new Map();      // imageId -> the attempt that "Try again" reworks (the server also reports it)
 const liveJobs = new Map();       // imageId -> latest polled state of its test job (step, log, refined, judged)
 const generating = new Map();    // imageId -> 'queued' | server step (generate-1, judge-1, recalibrate, generate-2, judge-2)
 let polling = false;
@@ -1259,12 +1260,25 @@ async function playDrawing(attempt) {
 // The polled step of a "Try again" running for this test, or null.
 const retryState = g => selectedImage && retrying.get(selectedImage.id) === g.id ? generating.get(selectedImage.id) || null : null;
 // The attempt in progress: the refined prompt and its change as soon as they exist, then Codex's reasoning lines as they arrive.
+// The attempt in progress beside the original, like a finished attempt: the attempt it reworks, dimmed, until the new
+// image (or for a drawing, the drawing as it grows) takes its place.
+function liveCompare(state, step, art) {
+  const g = selectedImage.generations?.find(x => x.id === openGenerationId);
+  const base = g?.attempts[Number.isInteger(state.from) ? state.from : retryFrom.get(selectedImage.id) ?? g.attempts.length - 1];
+  const now = step === 'queued' ? 'Waiting in line' : GENERATE_STEPS[step]?.replace(/…$/, '') || 'Starting';
+  const shown = art || (base ? `<img class="live-base" src="/images/generated/${escape(base.filename)}" alt="">` : '');
+  return `<div class="generation-compare">
+      <figure class="attempt"><button class="attempt-image" data-generated aria-label="View the original larger"><img src="${imageURL(selectedImage)}" alt="Original reference"></button><figcaption><strong>Original</strong></figcaption></figure>
+      <figure class="attempt"><div class="attempt-image live-image${art ? '' : ' waiting'}">${shown}${art ? '' : `<span class="live-badge">${escape(now)}<i></i></span>`}</div>
+        <figcaption><strong>Attempt ${(g?.attempts.length || 0) + 1}</strong><span>${base ? `Reworking attempt ${g.attempts.indexOf(base) + 1}` : 'In progress'}</span></figcaption></figure>
+    </div>`;
+}
 function liveAttempt(step) {
   const state = liveJobs.get(selectedImage.id) || {}, refined = state.refined;
   if (state.mode === 'vector') return liveDrawing(state, step);
   const notes = (state.log || []).map(l => `<li>${escape(l.text)}</li>`).join('');
   const now = step === 'queued' ? 'Waiting in line' : GENERATE_STEPS[step]?.replace(/…$/, '') || 'Starting';
-  return `<div class="generation-notes">
+  return `${liveCompare(state, step)}<div class="generation-notes">
       <section>
         <h3>Adjustments</h3><p>${refined?.change ? escape(refined.change) : refined ? 'Refined.' : '<span class="muted">Reading the last critique…</span>'}</p>
         ${refined ? `<h3>Reworked prompt</h3><p class="generation-prompt live-prompt">${escape(refined.prompt)}</p>` : ''}
@@ -1288,11 +1302,12 @@ function updateLiveAttempt(box, step) {
 // A drawing in progress: its newest stage as soon as it exists, the drawer's notes, then the critique's reasoning.
 function liveDrawing(state, step) {
   const stages = state.stages || [], latest = stages.at(-1);
-  const notes = [...stages.map(st => st.note).filter(Boolean), ...(state.log || []).map(l => l.text)].map(text => `<li>${escape(text)}</li>`).join('');
+  const notes = (state.log || []).map(l => `<li>${escape(l.text)}</li>`).join('');
   const now = step === 'queued' ? 'Waiting in line' : GENERATE_STEPS[step]?.replace(/…$/, '') || 'Starting';
   const order = orderFor(step, true);
-  return `<div class="generation-notes">
-      <section>${latest || state.liveVersion ? `<figure class="attempt live-drawing"><div class="attempt-image"><img id="live-art" src="${liveArt.url && liveArt.job === state.id ? liveArt.url : latest ? `/images/generated/${escape(latest.render || latest.filename)}` : ''}" alt="Drawing in progress"></div></figure>` : '<p class="muted">Reading the last critique…</p>'}</section>
+  const src = liveArt.url && liveArt.job === state.id ? liveArt.url : latest ? `/images/generated/${escape(latest.render || latest.filename)}` : '';
+  return `${liveCompare(state, step, src ? `<img id="live-art" src="${src}" alt="Drawing in progress">` : '')}<div class="generation-notes">
+      <section><h3>Adjustments</h3><p>${latest?.note ? escape(latest.note) : '<span class="muted">Reading the last critique…</span>'}</p></section>
       <section><h3>Studio notes</h3><ul class="live-log">${notes}<li class="live-now">${escape(now)}${order.includes(step) ? `<span class="step-dots" aria-hidden="true">${dotsFor(order, order.indexOf(step))}</span>` : '<i></i>'}</li></ul></section>
     </div>`;
 }
@@ -1440,6 +1455,7 @@ function retryGeneration(generation) {
   const imageId = selectedImage.id;
   if (generating.has(imageId)) return;
   const from = viewedAttempt(generation);
+  retryFrom.set(imageId, from);
   retryErrors.delete(generation.id); generating.set(imageId, 'queued'); retrying.set(imageId, generation.id);
   if (generation.attempts[from].kind === 'vector') liveJobs.set(imageId, { mode: 'vector' }); else liveJobs.delete(imageId);
   openAttempt = 'live'; markGenerating(); renderGenerationDialog(); focusAttemptTab();
