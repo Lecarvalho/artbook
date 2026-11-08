@@ -88,8 +88,8 @@ function validateEvidence(list, differences, kept, listName) {
     return [{ list: listName, difference: index, phrase, original, generated }];
   }).slice(0, 6);
 }
-// A test prompt carries the palette line the interface appends to every prompt; the stored style prompt does not.
-export const stylePromptOf = prompt => text(String(prompt).replace(/\s*Color palette:[^]*$/i, ''), 1500);
+// A test prompt carries the palette line and any framing sentence the interface adds; the stored style prompt does not.
+export const stylePromptOf = prompt => text(String(prompt).replace(/\s*Color palette:[^]*$/i, '').replace(/\s*Framing:[^.]*\./i, ''), 1500);
 // The generator gets the subject as plain words: "[a fox] ink lines" becomes "a fox. ink lines". Stored prompts keep the brackets.
 export const promptForGenerator = prompt => String(prompt).replace(/^\s*\[([^\]]*)\]\s*[,.:;]?\s*/, (_, subject) => subject.trim() ? `${subject.trim()}. ` : '').replace(/\[([^\]]*)\]/g, '$1');
 const GENERATED_FILE =/^[a-f0-9-]{8,64}\.(png|jpg|webp)$/;

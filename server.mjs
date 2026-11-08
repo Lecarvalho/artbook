@@ -264,7 +264,7 @@ Differences that appear in more than one attempt are persistent: fix them first.
   return `The attached image is an original reference. The text-to-image prompt below was written to create a NEW image in exactly this visual style with a different subject. The generator never sees the original, only the prompt. A reviewer compared the result with the original and found these style differences:
 ${judgement.differences.map(d => `- ${d}`).join('\n') || '- (no details given)'}
 Trait scores out of 100: ${traitScores(judgement.scores)}.${judgement.strengths?.length ? `\nWhat already matches, keep it:\n${judgement.strengths.map(s => `- ${s}`).join('\n')}` : ''}${earlier}
-Rewrite the prompt so the next image matches the original's style more closely. Write one complete new prompt, not a list of corrections appended to the old one. Keep the same example subject in square brackets at the start. Fix the listed differences with concrete visual language, strengthen the weakest traits, and keep what already worked. Phrase every fix as a positive description of the target look (for example "thin tapering ink contours"), never as "no ..." or "avoid ...". If the prompt ends with a "Color palette:" line, keep it last and keep its hex codes. Describe the style through visual traits only; never use artist names, studio names or copyrighted character names, and do not mention the reference image. Keep it under 200 words.
+Rewrite the prompt so the next image matches the original's style more closely. Write one complete new prompt, not a list of corrections appended to the old one. Keep the same example subject in square brackets at the start; if a "Framing:" sentence follows it, keep that sentence unchanged right after the subject. Fix the listed differences with concrete visual language, strengthen the weakest traits, and keep what already worked. Phrase every fix as a positive description of the target look (for example "thin tapering ink contours"), never as "no ..." or "avoid ...". If the prompt ends with a "Color palette:" line, keep it last and keep its hex codes. Describe the style through visual traits only; never use artist names, studio names or copyrighted character names, and do not mention the reference image. Keep it under 200 words.
 Return only the requested JSON:
 - prompt: the complete rewritten prompt.
 - changes: one terse line of at most 18 words in art terms naming what you pushed, for example "heavier tapering contours; dry-brush grain in the washes; lower chroma". No praise or filler.
@@ -910,14 +910,16 @@ export async function makeApp({ dataDir = join(root, 'data'), analyze = analyzeI
         res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox", 'Cache-Control': 'private, max-age=86400' });
         return res.end(req.method === 'HEAD' ? undefined : content);
       }
+      const example = url.pathname.match(/^\/framing\/((?:shot|angle)-[a-z-]+\.jpg)$/);
       if (image) { file = join(dataDir, 'images', image[1]); mime = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }[image[2]]; }
+      else if (example) { file = join(root, 'public', 'framing', example[1]); mime = 'image/jpeg'; }
       else {
         const asset = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/fonts/InstrumentSerif-Regular.ttf': ['fonts/InstrumentSerif-Regular.ttf', 'font/ttf'], '/fonts/InstrumentSerif-Italic.ttf': ['fonts/InstrumentSerif-Italic.ttf', 'font/ttf'] }[url.pathname];
         if (!asset) return send({ error: 'Not found.' }, 404);
         file = join(root, 'public', asset[0]); mime = asset[1];
       }
       const content = await readFile(file);
-      res.writeHead(200, { 'Content-Type': mime.startsWith('font/') ? mime : `${mime}; charset=utf-8`, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; img-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'Cache-Control': image || mime.startsWith('font/') ? 'private, max-age=86400' : 'no-store' });
+      res.writeHead(200, { 'Content-Type': mime.startsWith('font/') ? mime : `${mime}; charset=utf-8`, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; img-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'Cache-Control': image || example || mime.startsWith('font/') ? 'private, max-age=86400' : 'no-store' });
       res.end(req.method === 'HEAD' ? undefined : content);
     } catch (error) { send({ error: error.code === 'ENOENT' ? 'File not found.' : error.message }, error.status || (error.code === 'ENOENT' ? 404 : 400)); }
   });

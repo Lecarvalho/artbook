@@ -198,6 +198,8 @@ function referencePanel(style) {
         <div class="generate-row" id="generate-row">
           <div class="generate-bar">
             <label class="test-field" id="subject-field"><span class="test-label">Subject</span><input type="text" id="test-subject" autocomplete="off" spellcheck="false" maxlength="200" placeholder="Your subject"></label>
+            <div class="test-field"><span class="test-label">Framing</span>
+              <div class="framing-controls">${framingPicker('shot', 'Shot size', SHOTS)}${framingPicker('angle', 'Camera angle', ANGLES)}</div></div>
             <div class="test-field"><span class="test-label" id="test-mode-label">Test as</span>
               <div class="segmented" id="test-mode" role="radiogroup" aria-labelledby="test-mode-label">
                 <label><input type="radio" name="test-mode" value="image" checked><span>Image</span></label>
@@ -280,6 +282,7 @@ function selectImage(index) {
   // The subject field starts with the prompt's example subject; editing it rewrites the [slot], so Copy and Test use it.
   const subject = (image.stylePrompt || '').match(/\[([^\]]*)\]/)?.[1] || '';
   if ($('#test-subject')) { $('#test-subject').value = subject; $('#test-subject').dataset.original = subject; $('#subject-field').hidden = !subject; }
+  restoreFraming();
   if ($('#test-mode')) { let saved = null; try { saved = localStorage.getItem('artbook-test-mode'); } catch {} const choice = $(`input[name="test-mode"][value="${['image', 'claude', 'codex'].includes(saved) ? saved : 'image'}"]`); if (choice) choice.checked = true; }
   $('#image-prompts').hidden = !image.imagePrompt && !image.stylePrompt;
   $('#prompts-missing').hidden = !$('#image-prompts').hidden;
@@ -984,7 +987,7 @@ function reidentifyImage() {
 // "Generate & compare" sends the style prompt (as copied, palette line included) without the image. The server
 // generates, rates the style match against this image, and retries once with a refined prompt when the match is low.
 // Same rule as the server: a test prompt minus its trailing palette line, whitespace collapsed.
-const stylePromptOf = prompt => prompt.replace(/\s*Color palette:[^]*$/i, '').trim().replace(/\s+/g, ' ').slice(0, 1500);
+const stylePromptOf = prompt => prompt.replace(/\s*Color palette:[^]*$/i, '').replace(/\s*Framing:[^.]*\./i, '').trim().replace(/\s+/g, ' ').slice(0, 1500);
 const promptText = panel => [...panel.querySelectorAll(':scope > p:not(.field-hint):not([hidden])')].map(p => p.textContent).filter(Boolean).join('\n\n');
 const GENERATE_STEPS = { queued: 'Waiting in line…', running: 'Setting up…', 'generate-1': 'Painting from the prompt…', 'judge-1': 'Critiquing it against the original…', recalibrate: 'Low match. Reworking the prompt…', 'generate-2': 'Painting a second study…', 'judge-2': 'Critiquing the second study…',
   'retry-recalibrate': 'Reworking the prompt from the last critique…', 'generate-retry': 'Painting a new study…', 'judge-retry': 'Critiquing it against the original…',
@@ -995,6 +998,95 @@ const DRAWER_NAMES = { claude: 'Claude', codex: 'Codex' };
 const testMode = () => $('input[name="test-mode"]:checked')?.value || 'image';
 document.addEventListener('change', event => { if (event.target.name === 'test-mode') { try { localStorage.setItem('artbook-test-mode', event.target.value); } catch {} markGenerating(); } });
 const TRAIT_LABELS = { palette: 'Palette', linework: 'Linework', rendering: 'Rendering', texture: 'Texture', lighting: 'Lighting', shapes: 'Shapes' };
+// Framing for a test: shot size and camera angle become one sentence right after the [subject] in the prompt, so Copy
+// and Test carry it and a refined prompt keeps it. It is not part of the saved style prompt.
+// Each option has an example picture (the same puppet in the same room, public/framing/) and a plain-words hint.
+const SHOTS = {
+  auto: { label: 'Any shot', text: '', hint: 'The model chooses.' },
+  wide: { label: 'Wide shot', text: 'wide shot', hint: 'The whole scene; the subject is small in it.' },
+  'medium-wide': { label: 'Medium wide', text: 'medium wide shot', hint: 'From the knees up, with room around.' },
+  full: { label: 'Full shot', text: 'full shot', hint: 'The whole figure, head to toe.' },
+  medium: { label: 'Medium shot', text: 'medium shot', hint: 'From the waist up.' },
+  'medium-close': { label: 'Medium close-up', text: 'medium close-up', hint: 'From the chest up.' },
+  close: { label: 'Close-up', text: 'close-up', hint: 'The face fills the frame.' },
+  'extreme-close': { label: 'Extreme close-up', text: 'extreme close-up', hint: 'One detail, such as the eyes.' } };
+const ANGLES = {
+  auto: { label: 'Any angle', text: '', hint: 'The model chooses.' },
+  eye: { label: 'Eye level', text: 'at eye level', hint: 'Level with the subject; neutral.' },
+  high: { label: 'High angle', text: 'from a high angle', hint: 'Looking down; the subject feels small.' },
+  low: { label: 'Low angle', text: 'from a low angle', hint: 'Looking up; the subject feels strong.' },
+  dutch: { label: 'Dutch tilt', text: 'with a Dutch tilt', hint: 'Camera tilted; tension or unease.' },
+  overhead: { label: "Overhead (bird's-eye)", text: "from directly overhead, a bird's-eye view", hint: 'Straight down from above.' },
+  ground: { label: 'Ground level', text: 'from ground level', hint: 'Camera on the floor, looking along it.' } };
+const framing = { shot: 'auto', angle: 'auto' };
+const FRAMING_OPTIONS = { shot: SHOTS, angle: ANGLES };
+// A framing picker: a chip showing the choice, opening a grid of examples (the popover spans the framing row).
+function framingPicker(kind, name, options) {
+  return `<div class="framing-picker" data-kind="${kind}">
+      <button type="button" class="framing-chip" aria-haspopup="listbox" aria-expanded="false" aria-label="${name}: ${escape(options.auto.label)}"><span class="framing-current">${escape(options.auto.label)}</span></button>
+      <div class="framing-pop" role="listbox" aria-label="${name}" hidden>${Object.entries(options).map(([value, o]) => `<button type="button" role="option" class="framing-option" data-value="${value}" aria-selected="${value === 'auto'}">
+        ${value === 'auto' ? '<span class="framing-thumb framing-any">Model chooses</span>' : `<img class="framing-thumb" src="/framing/${kind}-${value}.jpg" alt="" loading="lazy">`}
+        <span class="framing-label">${escape(o.label)}</span><span class="framing-hint">${escape(o.hint)}</span></button>`).join('')}</div>
+    </div>`;
+}
+function showFramingChoice() {
+  for (const picker of document.querySelectorAll('.framing-picker')) {
+    const kind = picker.dataset.kind, option = FRAMING_OPTIONS[kind][framing[kind]];
+    picker.querySelector('.framing-current').textContent = option.label;
+    picker.querySelector('.framing-chip').setAttribute('aria-label', `${kind === 'shot' ? 'Shot size' : 'Camera angle'}: ${option.label}`);
+    picker.querySelector('.framing-chip').classList.toggle('chosen', framing[kind] !== 'auto');
+    picker.querySelectorAll('.framing-option').forEach(o => o.setAttribute('aria-selected', o.dataset.value === framing[kind]));
+  }
+}
+function closeFramingPickers(except) {
+  document.querySelectorAll('.framing-picker').forEach(p => { if (p === except) return; p.querySelector('.framing-pop').hidden = true; p.querySelector('.framing-chip').setAttribute('aria-expanded', 'false'); });
+}
+document.addEventListener('click', event => {
+  const chip = event.target.closest('.framing-chip'), option = event.target.closest('.framing-option');
+  if (chip) {
+    const picker = chip.closest('.framing-picker'), pop = picker.querySelector('.framing-pop');
+    closeFramingPickers(picker);
+    pop.hidden = !pop.hidden; chip.setAttribute('aria-expanded', String(!pop.hidden));
+    if (!pop.hidden) (pop.querySelector('[aria-selected="true"]') || pop.querySelector('.framing-option')).focus();
+    return;
+  }
+  if (option) {
+    const picker = option.closest('.framing-picker');
+    framing[picker.dataset.kind] = option.dataset.value;
+    try { localStorage.setItem('artbook-framing', JSON.stringify(framing)); } catch {}
+    showFramingChoice(); renderFraming(); closeFramingPickers();
+    picker.querySelector('.framing-chip').focus();
+    return;
+  }
+  if (!event.target.closest('.framing-pop')) closeFramingPickers();
+});
+document.addEventListener('keydown', event => {
+  const pop = event.target.closest?.('.framing-pop'); if (!pop) return;
+  const options = [...pop.querySelectorAll('.framing-option')], at = options.indexOf(event.target.closest('.framing-option'));
+  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFramingPickers(); pop.closest('.framing-picker').querySelector('.framing-chip').focus(); }
+  else if (step) { event.preventDefault(); options[(at + step + options.length) % options.length].focus(); }
+  else if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); options[event.key === 'Home' ? 0 : options.length - 1].focus(); }
+});
+function framingSentence() {
+  const shot = SHOTS[framing.shot]?.text || '', angle = ANGLES[framing.angle]?.text || '';
+  if (!shot && !angle) return '';
+  return `Framing: ${shot ? `${shot}${angle ? ` ${angle}` : ''}` : `shot ${angle}`}.`;
+}
+function renderFraming() {
+  const prompt = $('#style-prompt'); if (!prompt) return;
+  prompt.querySelector('.prompt-framing')?.remove();
+  const sentence = framingSentence(); if (!sentence) return;
+  const span = document.createElement('span'); span.className = 'prompt-framing'; span.textContent = ` ${sentence}`;
+  const slot = prompt.querySelector('.prompt-slot');
+  if (slot) slot.after(span); else prompt.prepend(span);
+}
+function restoreFraming() {
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem('artbook-framing')) || {}; } catch {}
+  framing.shot = SHOTS[saved.shot] ? saved.shot : 'auto';
+  framing.angle = ANGLES[saved.angle] ? saved.angle : 'auto';
+  showFramingChoice(); renderFraming();
+}
 document.addEventListener('input', event => {
   if (event.target.id !== 'test-subject') return;
   const field = event.target, typed = field.value.replace(/[\[\]]/g, '').trim();

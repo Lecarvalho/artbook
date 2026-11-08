@@ -697,6 +697,27 @@ dialog{border-radius:8px}
 .segmented input:focus-visible+span{outline:2px solid var(--ink);outline-offset:1px}
 .segmented input:disabled{cursor:wait}
 /* Same compact primary as "Try again" in the test view. */
+.generate-bar .framing-controls{grid-column:2 / -1}
+.framing-controls{display:flex;flex-wrap:wrap;gap:8px}
+/* Framing pickers: chips in the segmented track's soft fill; each opens a grid of example pictures across the row. */
+.framing-controls{position:relative}
+.framing-chip{position:relative;border:0;border-radius:8px;padding:7px 30px 7px 12px;font-size:12.5px;line-height:1.3;color:var(--ink);background:color-mix(in srgb,var(--ink) 6%,transparent);cursor:pointer;text-align:left}
+.framing-chip:hover{background:color-mix(in srgb,var(--ink) 10%,transparent)}
+.framing-chip.chosen{font-weight:500}
+.framing-chip:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
+.framing-chip::after{content:"";position:absolute;right:12px;top:50%;width:6px;height:6px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:translateY(-70%) rotate(45deg)}
+.framing-chip[aria-expanded=true]::after{transform:translateY(-20%) rotate(225deg)}
+.framing-pop{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:20;display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px;max-height:min(380px,60vh);overflow:auto;padding:10px;border-radius:8px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}
+.framing-pop[hidden]{display:none}
+.framing-option{display:grid;gap:3px;align-content:start;padding:6px;border:0;border-radius:6px;background:none;text-align:left;cursor:pointer;min-width:0}
+.framing-option:hover,.framing-option:focus-visible{background:color-mix(in srgb,var(--ink) 6%,transparent);outline:none}
+.framing-option[aria-selected=true]{background:color-mix(in srgb,var(--ink) 9%,transparent)}
+.framing-option[aria-selected=true] .framing-thumb{outline:2px solid var(--ink);outline-offset:1px}
+.framing-thumb{display:block;width:100%;aspect-ratio:3/2;object-fit:cover;border-radius:4px;background:#22332b0d;margin-bottom:4px}
+.framing-any{display:grid;place-items:center;border:1px dashed var(--line);background:none;font-size:11px;color:var(--muted)}
+.framing-label{font-size:12.5px;font-weight:500;color:var(--ink)}
+.framing-hint{font-size:11.5px;line-height:1.4;color:var(--muted)}
+.prompt-framing{color:var(--ink);font-weight:500}
 .generate-bar .test-button{grid-column:3;justify-self:end;min-height:36px;padding:8px 16px;gap:8px}
 /* In a narrow panel the action drops under the choice instead of squeezing it. */
 .generate-row{container-type:inline-size}
@@ -706,7 +727,10 @@ dialog{border-radius:8px}
   .test-field+.test-field .test-label{margin-top:8px}
   .segmented{justify-self:stretch}
   .segmented span{padding:7px 8px;font-size:12px}
-  .generate-bar #test-subject{grid-column:1}
+  .generate-bar #test-subject,.generate-bar .framing-controls{grid-column:1}
+  .framing-picker{flex:1 1 140px;display:flex}
+  .framing-chip{flex:1}
+  .framing-pop{grid-template-columns:repeat(2,minmax(0,1fr))}
   .generate-bar .test-button{grid-column:1;justify-self:stretch;margin-top:10px}
 }
 #test-subject{flex:1;min-width:0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;padding:5px 0;font-size:13px;color:var(--ink)}
@@ -895,9 +919,9 @@ dialog{border-radius:8px}
 .review-start{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px}
 .review-start .retry-status:empty+*{margin-left:0}
 @media(min-width:900px){
-  .style-info .image-prompts:has(#generate-row:not([hidden])){min-height:284px}
-  .style-info .image-prompts:has(#generate-row:not([hidden]) :is(#tests,#generate-progress):not([hidden])){min-height:334px}
-  .style-info .image-prompts:has(#generate-row:not([hidden]) #tests:not([hidden])):has(#generate-progress:not([hidden])){min-height:374px}
+  .style-info .image-prompts:has(#generate-row:not([hidden])){min-height:330px}
+  .style-info .image-prompts:has(#generate-row:not([hidden]) :is(#tests,#generate-progress):not([hidden])){min-height:380px}
+  .style-info .image-prompts:has(#generate-row:not([hidden]) #tests:not([hidden])):has(#generate-progress:not([hidden])){min-height:420px}
 }
 @media(max-width:700px){
   .generation-compare{gap:10px}

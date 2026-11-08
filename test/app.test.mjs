@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createLibrary, validateStyle } from '../lib.mjs';
+import { createLibrary, validateStyle, stylePromptOf } from '../lib.mjs';
 import { makeApp, refinementPrompt } from '../server.mjs';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=', 'base64');
@@ -337,4 +337,27 @@ test('a refinement sees every attempt and asks for one new prompt', () => {
   assert.doesNotMatch(first, /All attempts|Best attempt/);
   // When the reworked attempt is already the best, no reference prompt is added.
   assert.doesNotMatch(refinementPrompt(attempts[0].prompt, { ...attempts[0], index: 0 }, attempts), /Best attempt/);
+});
+
+test('a test prompt keeps its framing for retries, but the saved style prompt drops it', () => {
+  const prompt = "[a potter] Framing: medium close-up from a low angle. Render as gouache.\n\nColor palette: dominant #FFFFFF.";
+  assert.equal(stylePromptOf(prompt), '[a potter] Render as gouache.');
+  assert.equal(stylePromptOf("[a fox] Framing: shot from directly overhead, a bird's-eye view. Ink."), '[a fox] Ink.');
+  const text = refinementPrompt(prompt, { differences: ['x'], scores: {}, strengths: [] }, []);
+  assert.match(text, /if a "Framing:" sentence follows it, keep that sentence unchanged right after the subject/);
+});
+
+test('framing examples are served as images, and nothing else from their folder', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'artbook-framing-'));
+  const server = await makeApp({ dataDir: dir });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  for (const name of ['shot-wide', 'shot-medium-wide', 'shot-full', 'shot-medium', 'shot-medium-close', 'shot-close', 'shot-extreme-close', 'angle-eye', 'angle-high', 'angle-low', 'angle-dutch', 'angle-overhead', 'angle-ground']) {
+    const response = await fetch(`${base}/framing/${name}.jpg`);
+    assert.equal(response.status, 200, name);
+    assert.equal(response.headers.get('content-type'), 'image/jpeg; charset=utf-8');
+  }
+  assert.equal((await fetch(`${base}/framing/../server.mjs`)).status, 404);
+  assert.equal((await fetch(`${base}/framing/notes.txt`)).status, 404);
 });
