@@ -1168,7 +1168,9 @@ const ICONS = {
   download: '<path d="M12 4.5v10M7.5 10.5l4.5 4.5 4.5-4.5M5 19.5h14"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z"/>',
   stop: '<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
-  search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>'
+  search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>',
+  plus: '<path d="M12 5.5v13M5.5 12h13"/>',
+  pencil: '<path d="M14.5 6.5l3 3M5 19l1-4L15.8 5.2a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L9 18z"/>'
 };
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 const MAX_TEST_ATTEMPTS = 8; // same cap as the server
@@ -1196,12 +1198,13 @@ function renderGenerationDialog() {
       <button role="tab" class="attempt-pending" id="attempt-tab-live" aria-controls="attempt-panel" aria-selected="${live}" tabindex="${live ? 0 : -1}" data-attempt="live" hidden><span>Attempt ${g.attempts.length + 1}</span><i></i></button></div>
     <div id="attempt-panel" role="tabpanel" aria-labelledby="attempt-tab-${live ? 'live' : n}">${live ? '<div class="live-attempt" id="live-attempt"></div>' : `
       <div class="generation-compare">
-        <figure class="attempt"><button class="attempt-image" data-generated aria-label="View the original larger"><img src="${imageURL(selectedImage)}" alt="Original reference"></button><figcaption><strong>Original</strong></figcaption></figure>
-        <figure class="attempt"><button class="attempt-image" data-generated aria-label="View attempt ${n + 1} larger"><img id="attempt-art" src="/images/generated/${escape(a.filename)}" alt="${a.kind === 'vector' ? 'Drawn' : 'Generated'} in attempt ${n + 1}"></button>
+        <figure class="attempt"><button class="attempt-image" data-generated aria-label="View the original larger"><img src="${imageURL(selectedImage)}" alt="Original reference">${noteLayer(a, 'original')}</button><figcaption><strong>Original</strong></figcaption></figure>
+        <figure class="attempt"><button class="attempt-image" data-generated aria-label="View attempt ${n + 1} larger"><img id="attempt-art" src="/images/generated/${escape(a.filename)}" alt="${a.kind === 'vector' ? 'Drawn' : 'Generated'} in attempt ${n + 1}">${noteLayer(a, 'generated')}</button>
           <figcaption><strong class="${a.similarity >= target ? '' : 'match-low'}">${a.similarity}% style match</strong>${before ? `<span>${signed(a.similarity - before.similarity)} from attempt ${base + 1}</span>` : '<span>Prompt as written</span>'}${a.kind === 'vector' ? `<span class="vector-tag">Vector${DRAWER_NAMES[a.drawer] ? ` · ${DRAWER_NAMES[a.drawer]}` : ''}</span>` : ''}</figcaption></figure>
       </div>
       ${a.stages?.length > 1 ? processStrip(a) : ''}
       ${n === g.attempts.length - 1 && g.error ? `<p class="error">${escape(g.error)}</p>` : ''}
+      ${notesSection(a, n)}
       <div class="generation-notes">
         <section>
           ${change ? `<h3>Adjustments</h3><p>${escape(change)}</p>` : ''}
@@ -1234,7 +1237,111 @@ function renderGenerationDialog() {
   renderRetryStatus();
   renderReview();
   $('#generation-content').querySelectorAll('.generation-prompt').forEach(colorCodes);
+  placeNoteBoxes();
+  $('#generation-content').querySelectorAll('.attempt-image img').forEach(img => { if (img.complete) placeNoteLayer(img); img.addEventListener('load', () => placeNoteLayer(img)); });
 }
+// ---- Your notes ----
+// The user marks what they see: a box on either picture (drag, or tap for a small one) with a short note, or a general
+// note. Notes are saved with the attempt; Try again works on them before the AI critique. No scores.
+const MAX_NOTES = 12;
+let noteDraft = null; // { id (when editing), on, box, text } while a note is being written
+const notesOf = a => a?.notes || [];
+// Boxes are placed from script (the page's policy refuses inline style attributes).
+const noteBox = (box, number, draft = false) => `<span class="note-box${draft ? ' draft' : ''}" data-box="${[box.x, box.y, box.w, box.h].join(' ')}"><b>${number}</b></span>`;
+function placeNoteBoxes(root = $('#generation-content')) {
+  root.querySelectorAll('.note-box[data-box]').forEach(el => {
+    const [x, y, w, h] = el.dataset.box.split(' ').map(Number);
+    Object.assign(el.style, { left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` });
+  });
+}
+function noteLayer(a, on) {
+  const notes = notesOf(a);
+  const boxes = notes.map((x, i) => x.box && x.on === on && x.id !== noteDraft?.id ? noteBox(x.box, i + 1) : '').join('');
+  const number = noteDraft?.id ? notes.findIndex(x => x.id === noteDraft.id) + 1 : notes.length + 1;
+  return `<span class="note-layer${noteDraft ? ' drawing' : ''}" data-note-on="${on}">${boxes}${noteDraft?.box && noteDraft.on === on ? noteBox(noteDraft.box, number, true) : ''}</span>`;
+}
+// The layer covers the picture itself, not the letterbox around it (pictures are contained in a 4:3 frame).
+function placeNoteLayer(img) {
+  const layer = img.parentElement.querySelector('.note-layer'); if (!layer || !img.naturalWidth) return;
+  const ratio = img.naturalWidth / img.naturalHeight, frame = img.clientWidth / img.clientHeight || 4 / 3;
+  const w = ratio >= frame ? 100 : ratio / frame * 100, h = ratio >= frame ? frame / ratio * 100 : 100;
+  Object.assign(layer.style, { left: `${(100 - w) / 2}%`, top: `${(100 - h) / 2}%`, width: `${w}%`, height: `${h}%` });
+}
+const noteWhere = (x, n) => x.box ? (x.on === 'original' ? 'On the original' : `On attempt ${n + 1}`) : 'General note';
+const noteMark = n => noteDraft?.box ? `Marked on ${noteDraft.on === 'original' ? 'the original' : `attempt ${n + 1}`}. Drag again to move it, or <button class="note-link" id="note-unmark">remove the mark</button>.`
+  : 'Drag on either picture to mark a spot (tap for a small one), or keep it a general note.';
+function notesSection(a, n) {
+  const notes = notesOf(a);
+  const form = noteDraft ? `<div class="note-form">
+      <p class="note-hint" id="note-mark">${noteMark(n)}</p>
+      <textarea id="note-text" rows="2" maxlength="300" aria-label="Your note" placeholder="What should change here, or what must stay?">${escape(noteDraft.text || '')}</textarea>
+      <div class="note-form-actions"><button class="text-button dialog-action" id="note-cancel">Cancel</button><button class="primary" id="note-save">${noteDraft.id ? 'Save note' : 'Add note'}</button></div>
+    </div>` : '';
+  return `<section class="user-notes" aria-labelledby="user-notes-title">
+      <div class="user-notes-head"><h3 id="user-notes-title">Your notes</h3>${!noteDraft && notes.length < MAX_NOTES ? `<button class="text-button dialog-action" id="add-note">${icon('plus')}<span>Add note</span></button>` : ''}</div>
+      ${notes.length ? `<ol class="note-list">${notes.map((x, i) => `<li${x.id === noteDraft?.id ? ' class="editing"' : ''}><span class="note-num">${i + 1}</span><div class="note-body"><p>${escape(x.text)}</p><span>${noteWhere(x, n)}</span></div>
+        <span class="note-actions">${x.box ? `<button class="note-action" data-note-show="${i}" aria-label="Show note ${i + 1} up close" title="Show up close">${icon('search')}</button>` : ''}<button class="note-action" data-note-edit="${i}" aria-label="Edit note ${i + 1}" title="Edit">${icon('pencil')}</button><button class="note-action" data-note-delete="${i}" aria-label="Delete note ${i + 1}" title="Delete">${icon('trash')}</button></span></li>`).join('')}</ol>` : ''}
+      ${form}
+      ${noteDraft ? '' : `<p class="note-empty">${notes.length ? `Try again works on ${notes.length === 1 ? 'this note' : 'these notes'} first, then on the critique.` : 'Mark what you see on either picture. Try again works on your notes first, then on the critique.'}</p>`}
+    </section>`;
+}
+function startNote(a, index = -1) {
+  const x = notesOf(a)[index];
+  noteDraft = x ? { id: x.id, on: x.on, box: x.box, text: x.text } : { on: null, box: null, text: '' };
+  renderGenerationDialog();
+  const field = $('#note-text'); field?.focus({ preventScroll: true }); field?.setSelectionRange(field.value.length, field.value.length);
+  $('.user-notes')?.scrollIntoView({ block: 'nearest' });
+}
+function endNote() { noteDraft = null; renderGenerationDialog(); }
+async function saveNotes(generation, n, notes) {
+  await api(`/api/images/${encodeURIComponent(selectedImage.id)}/generations/${encodeURIComponent(generation.id)}/attempts/${n}/notes`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notes }) });
+  const keep = openAttempt, scroll = viewScroller().scrollTop;
+  noteDraft = null;
+  await refresh(); reselectImage(); openAttempt = keep; renderGenerationDialog(); viewScroller().scrollTop = scroll;
+}
+async function submitNote(generation, n, button) {
+  const text = $('#note-text').value.trim();
+  if (!text) { $('#note-text').focus(); return toast('Write the note first.'); }
+  const note = { ...(noteDraft.id ? { id: noteDraft.id } : {}), on: noteDraft.box ? noteDraft.on : null, box: noteDraft.box, text };
+  const notes = notesOf(generation.attempts[n]);
+  button.disabled = true;
+  try { await saveNotes(generation, n, noteDraft.id ? notes.map(x => x.id === noteDraft.id ? note : x) : [...notes, note]); }
+  catch (error) { button.disabled = false; toast(error.message); }
+}
+// Drawing a box: the drag shows a dashed box; a tap makes a small square one around the point.
+function drawNoteBox(event) {
+  const layer = noteDraft && event.target.closest('.note-layer'); if (!layer || event.button > 0) return;
+  event.preventDefault();
+  const rect = layer.getBoundingClientRect(), on = layer.dataset.noteOn, clamp = v => Math.max(0, Math.min(1, v));
+  const at = e => ({ x: clamp((e.clientX - rect.left) / rect.width), y: clamp((e.clientY - rect.top) / rect.height) });
+  const start = at(event); let moved = false;
+  const show = box => {
+    noteDraft.on = on; noteDraft.box = box;
+    $('#generation-content').querySelectorAll('.note-box.draft').forEach(el => el.remove());
+    const number = noteDraft.id ? notesOf(viewedGeneration()?.attempts[viewedAttempt(viewedGeneration())]).findIndex(x => x.id === noteDraft.id) + 1 : notesOf(viewedGeneration()?.attempts[viewedAttempt(viewedGeneration())]).length + 1;
+    layer.insertAdjacentHTML('beforeend', noteBox(box, number, true));
+    placeNoteBoxes(layer);
+  };
+  const move = e => {
+    const p = at(e);
+    if (!moved && Math.hypot((p.x - start.x) * rect.width, (p.y - start.y) * rect.height) < 8) return;
+    moved = true;
+    show({ x: Math.min(start.x, p.x), y: Math.min(start.y, p.y), w: Math.abs(p.x - start.x), h: Math.abs(p.y - start.y) });
+  };
+  const up = () => {
+    layer.removeEventListener('pointermove', move); layer.removeEventListener('pointerup', up); layer.removeEventListener('pointercancel', up);
+    if (!moved || noteDraft.box.w < 0.02 || noteDraft.box.h < 0.02) {
+      const w = 0.16, h = Math.min(1, w * rect.width / rect.height);
+      show({ x: clamp(start.x - w / 2) > 1 - w ? 1 - w : clamp(start.x - w / 2), y: clamp(start.y - h / 2) > 1 - h ? 1 - h : clamp(start.y - h / 2), w, h });
+    }
+    const g = viewedGeneration();
+    $('#note-mark').innerHTML = noteMark(viewedAttempt(g));
+  };
+  layer.setPointerCapture(event.pointerId);
+  layer.addEventListener('pointermove', move); layer.addEventListener('pointerup', up); layer.addEventListener('pointercancel', up);
+}
+const viewedGeneration = () => selectedImage?.generations?.find(g => g.id === openGenerationId);
+$('#generation-content').addEventListener('pointerdown', drawNoteBox);
 // A staged drawing's process: one thumbnail per stage; choosing one shows that stage in place of the finished drawing.
 const STAGE_LABELS = ['Sketch', 'Color and tone', 'Line and detail', 'Finish'];
 function processStrip(a) {
@@ -1479,9 +1586,36 @@ function closeEvidence() {
   evidenceView = null;
   renderGenerationDialog();
   viewScroller().scrollTop = evidenceScroll;
-  $(`#generation-content [data-evidence="${from.index}"][data-list="${from.list}"]`)?.focus({ preventScroll: true });
+  $(Number.isInteger(from.note) ? `#generation-content [data-note-show="${from.note}"]` : `#generation-content [data-evidence="${from.index}"][data-list="${from.list}"]`)?.focus({ preventScroll: true });
+}
+function openNoteEvidence(n, index) {
+  evidenceScroll = viewScroller().scrollTop;
+  evidenceView = { n, note: index };
+  renderGenerationDialog();
+  viewScroller().scrollTop = 0;
+  $('#generation-back').focus({ preventScroll: true });
+}
+// A note up close: only the picture it was written on, cropped to its box.
+async function renderNoteEvidence(generation) {
+  const { n, note: index } = evidenceView, attempt = generation.attempts[n], note = notesOf(attempt)[index];
+  if (!note?.box) { evidenceView = null; return renderGenerationDialog(); }
+  const label = note.on === 'original' ? 'Original' : `Attempt ${n + 1}`;
+  $('#generation-title').textContent = `Your note ${index + 1}`;
+  $('#generation-back-label').textContent = `Attempt ${n + 1}`;
+  $('#generation-content').innerHTML = `
+    <p class="evidence-note">${escape(note.text)}</p>
+    <div class="evidence-pair evidence-single">
+      <figure><canvas id="crop-note" role="img" aria-label="Detail of the ${label.toLowerCase()}"></canvas><figcaption><canvas id="context-note" aria-hidden="true"></canvas><span>${label}</span></figcaption></figure>
+    </div>`;
+  try {
+    const img = await loadImage(note.on === 'original' ? imageURL(selectedImage) : `/images/generated/${attempt.filename}`);
+    if (!$('#crop-note')) return;
+    const width = Math.min(640, $('#generation-content').clientWidth);
+    drawCrop($('#crop-note'), img, note.box, width); drawContext($('#context-note'), img, note.box, 44);
+  } catch { $('#generation-content').insertAdjacentHTML('beforeend', '<p class="error">The image could not be loaded.</p>'); }
 }
 async function renderEvidence(generation) {
+  if (Number.isInteger(evidenceView.note)) return renderNoteEvidence(generation);
   const { n, index, list } = evidenceView, attempt = generation.attempts[n], proof = proofFor(attempt, list, index);
   if (!proof) { evidenceView = null; return renderGenerationDialog(); }
   $('#generation-title').textContent = proof.phrase.charAt(0).toUpperCase() + proof.phrase.slice(1);
@@ -1509,7 +1643,7 @@ const generationOpen = () => !$('#generation-view').hidden;
 const viewScroller = () => matchMedia('(min-width: 900px)').matches ? $('#generation-view') : $('#style-dialog');
 let styleScroll = 0;
 function openGeneration(id, attempt = -1) {
-  openGenerationId = id; openAttempt = attempt; evidenceView = null;
+  openGenerationId = id; openAttempt = attempt; evidenceView = null; noteDraft = null;
   const wasOpen = generationOpen();
   if (!wasOpen) { styleScroll = $('#style-dialog').scrollTop; $('#style-content').hidden = true; $('#generation-view').hidden = false; history.pushState({ artbook: 'test' }, ''); }
   renderGenerationDialog();
@@ -1529,14 +1663,14 @@ $('#generation-back').onclick = () => evidenceView ? closeEvidence() : closeGene
 $('#style-dialog').addEventListener('cancel', event => {
   if (!generationOpen()) return;
   event.preventDefault();
-  if (evidenceView) closeEvidence(); else closeGenerationView();
+  if (noteDraft && !evidenceView) endNote(); else if (evidenceView) closeEvidence(); else closeGenerationView();
 });
 function generationClick(event) {
   const chip = event.target.closest('[data-open-generation]');
   if (chip) openGeneration(chip.dataset.openGeneration);
 }
 function selectAttempt(value) {
-  replay?.stop();
+  replay?.stop(); noteDraft = null;
   openAttempt = value === 'live' ? 'live' : Number(value);
   renderGenerationDialog(); $(`#attempt-tab-${value}`)?.focus();
 }
@@ -1550,7 +1684,7 @@ function retryGeneration(generation) {
   retryFrom.set(imageId, from);
   retryErrors.delete(generation.id); generating.set(imageId, 'queued'); retrying.set(imageId, generation.id);
   if (generation.attempts[from].kind === 'vector') liveJobs.set(imageId, { mode: 'vector' }); else liveJobs.delete(imageId);
-  openAttempt = 'live'; markGenerating(); renderGenerationDialog(); focusAttemptTab();
+  openAttempt = 'live'; noteDraft = null; markGenerating(); renderGenerationDialog(); focusAttemptTab();
   sendJob({ id: newJobId(), kind: 'generate', imageId, generationId: generation.id, live: true },
     `/api/images/${encodeURIComponent(imageId)}/generations/${encodeURIComponent(generation.id)}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from }) });
 }
@@ -1569,7 +1703,25 @@ $('#generation-content').addEventListener('click', async event => {
   const stage = event.target.closest('[data-stage]');
   if (stage) return showStage(stage, generation.attempts[viewedAttempt(generation)]);
   const view = event.target.closest('[data-generated]');
-  if (view) return openGeneratedLightbox(view);
+  if (view) return noteDraft ? undefined : openGeneratedLightbox(view);
+  const n = viewedAttempt(generation);
+  if (event.target.closest('#add-note')) return startNote(generation.attempts[n]);
+  if (event.target.closest('#note-cancel')) return endNote();
+  if (event.target.closest('#note-unmark')) { noteDraft.box = null; noteDraft.on = null; noteDraft.text = $('#note-text').value; renderGenerationDialog(); return $('#note-text').focus(); }
+  const save = event.target.closest('#note-save');
+  if (save) return submitNote(generation, n, save);
+  const edit = event.target.closest('[data-note-edit]');
+  if (edit) return startNote(generation.attempts[n], Number(edit.dataset.noteEdit));
+  const show = event.target.closest('[data-note-show]');
+  if (show) return openNoteEvidence(n, Number(show.dataset.noteShow));
+  const drop = event.target.closest('[data-note-delete]');
+  if (drop) {
+    if (!drop.classList.contains('armed')) { drop.classList.add('armed'); drop.title = 'Click again to delete'; setTimeout(() => { drop.classList.remove('armed'); drop.title = 'Delete'; }, 4000); return; }
+    drop.disabled = true;
+    try { await saveNotes(generation, n, notesOf(generation.attempts[n]).filter((_, i) => i !== Number(drop.dataset.noteDelete))); toast('Note deleted.'); }
+    catch (error) { drop.disabled = false; toast(error.message); }
+    return;
+  }
   const proof = event.target.closest('[data-evidence]');
   if (proof) return openEvidence(generation, viewedAttempt(generation), Number(proof.dataset.evidence), proof.dataset.list);
   if (event.target.closest('#retry-generation')) return retryGeneration(generation);

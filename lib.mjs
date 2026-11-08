@@ -126,6 +126,26 @@ export function svgSize(svg) {
   return { width: Math.round(w * scale), height: Math.round(h * scale) };
 }
 export const MAX_TEST_ATTEMPTS = 8;
+// The user's own notes on an attempt: a short text, optionally pinned to a region of the original or the attempt's
+// image (fractions of that image, x/y = top-left). No scores; "Try again" gives them priority over the critique.
+export const MAX_NOTES = 12;
+export function validateNotes(list) {
+  if (!Array.isArray(list)) throw new Error('Notes must be a list.');
+  if (list.length > MAX_NOTES) throw new Error(`An attempt keeps at most ${MAX_NOTES} notes.`);
+  const unit = v => Math.max(0, Math.min(1, Number(v)));
+  return list.map(note => {
+    const body = text(note?.text, 300);
+    if (!body) throw new Error('Write the note first.');
+    const on = note?.on === 'original' ? 'original' : 'generated';
+    let box = null;
+    if (note?.box && ['x', 'y', 'w', 'h'].every(k => Number.isFinite(Number(note.box[k])))) {
+      const x = unit(note.box.x), y = unit(note.box.y);
+      const w = Math.min(1 - x, unit(note.box.w)), h = Math.min(1 - y, unit(note.box.h));
+      if (w >= 0.01 && h >= 0.01) box = { x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), h: +h.toFixed(4) };
+    }
+    return { id: typeof note?.id === 'string' && /^[\w-]{4,64}$/.test(note.id) ? note.id : randomUUID(), on: box ? on : null, box, text: body };
+  });
+}
 // One attempt of a test: the generated file, the prompt that made it, its judgement, and what changed from the attempt before.
 export function validateAttempt(attempt) {
   if (!GENERATED_FILE.test(attempt?.filename || '')) throw new Error('Invalid generated image.');
@@ -138,7 +158,9 @@ export function validateAttempt(attempt) {
     kind: 'vector', drawer: DRAWERS.includes(attempt.drawer) ? attempt.drawer : null, svg: attempt.svg,
     stages: (Array.isArray(attempt.stages) ? attempt.stages : []).filter(st => SVG_FILE.test(st?.filename || '')).slice(0, 6).map(st => ({ filename: st.filename, render: GENERATED_FILE.test(st.render || '') ? st.render : null, note: text(st.note, 400), layers: (Array.isArray(st.layers) ? st.layers : []).filter(l => ['sketch', 'color', 'line', 'finish'].includes(l)) })),
   } : {};
-  return { filename: attempt.filename, prompt, change: text(attempt.change, 400) || null, basedOn, ...vector, ...validateJudgement(attempt) };
+  let notes = [];
+  try { notes = validateNotes((Array.isArray(attempt.notes) ? attempt.notes : []).slice(0, MAX_NOTES)); } catch {}
+  return { filename: attempt.filename, prompt, change: text(attempt.change, 400) || null, basedOn, ...vector, ...validateJudgement(attempt), ...(notes.length ? { notes } : {}) };
 }
 // A test generation: attempts made from a prompt alone, each rated against the original image. The first run makes
 // one or two; "Try again" adds refined attempts up to MAX_TEST_ATTEMPTS.
@@ -282,6 +304,15 @@ export async function createLibrary(directory) {
       if (generation.attempts.length >= MAX_TEST_ATTEMPTS) throw new Error(`A test keeps at most ${MAX_TEST_ATTEMPTS} attempts.`);
       generation.attempts = [...generation.attempts, validateAttempt(attempt)];
       generation.error = null;
+      return style;
+    }),
+    // Replaces the user's notes on one attempt of a test.
+    setNotes: (imageId, generationId, index, notes) => change(next => {
+      const style = next.styles.find(s => s.images.some(i => i.id === imageId));
+      const attempt = style?.images.find(i => i.id === imageId)?.generations?.find(g => g.id === generationId)?.attempts[index];
+      if (!attempt) throw new Error('Attempt not found.');
+      const clean = validateNotes(notes);
+      if (clean.length) attempt.notes = clean; else delete attempt.notes;
       return style;
     }),
     // Makes a refined test prompt the image's style prompt. Only prompts stored with a test can be applied.
