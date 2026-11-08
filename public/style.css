@@ -606,7 +606,8 @@ h1 em{display:block}
 }
 @media(max-width:700px){
   .style-media>.hero .hero-slide{height:min(62svh,520px)}
-  #style-dialog{height:100svh;max-height:100svh}
+  /* The sheet follows the visible viewport, so no strip of the page shows below it when the address bar hides. */
+  #style-dialog{height:100dvh;max-height:100dvh}
 }
 @media(min-width:900px){
   .style-media>.hero .hero-slide{height:100%}
@@ -633,6 +634,9 @@ dialog{border-radius:8px}
 /* Lightbox: no frame, no generic dim. The dialog itself covers the screen in a deep shade of the art's color. */
 #lightbox{position:fixed;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border-radius:0;box-shadow:none;display:grid;place-items:center}
 #lightbox:not([open]){display:none}
+/* Nothing in the lightbox scrolls: a drag must not pass through to the page (moving it or collapsing the address bar
+   and uncovering what is behind). Pinch zoom stays available; a tap still closes it. */
+#lightbox{overflow:hidden;overscroll-behavior:none;touch-action:pinch-zoom}
 #lightbox::backdrop{background:transparent}
 #lightbox-image{border-radius:0}
 #lightbox[open]{animation:lightbox-fade .35s cubic-bezier(.2,.7,.2,1)}
@@ -777,7 +781,11 @@ dialog{border-radius:8px}
 .evidence-pair figure>canvas{display:block;width:100%;height:auto;max-height:60vh;object-fit:contain;border-radius:6px;background:#22332b0d}
 .evidence-pair figcaption{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px;font-weight:600;color:var(--ink)}
 .evidence-pair figcaption canvas{width:44px;height:auto;border-radius:3px;flex:none}
-@media(max-width:700px){.evidence-pair{gap:10px}}
+/* Phones: the two crops stack at full width instead of two small columns, so the detail fills the sheet. */
+@media(max-width:700px){
+  .evidence-pair{grid-template-columns:1fr;gap:22px}
+  .evidence-pair figure>canvas{max-height:38svh}
+}
 /* Dialog actions: icon + label text buttons on one 32px line; the one main action (Try again) is a compact primary. */
 .dialog-action{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0;font-size:13px;color:var(--ink);white-space:nowrap}
 .dialog-action .icon{width:16px;height:16px;flex:none}

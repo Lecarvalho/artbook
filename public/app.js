@@ -1229,7 +1229,9 @@ async function renderEvidence(generation) {
   try {
     const [original, made] = await Promise.all([loadImage(imageURL(selectedImage)), loadImage(`/images/generated/${attempt.filename}`)]);
     if (!$('#crop-original')) return; // the view changed while the images loaded
-    const width = Math.min(440, ($('#generation-content').clientWidth - 16) / 2);
+    // Side by side the crops share the width; stacked on phones each gets all of it.
+    const room = $('#generation-content').clientWidth, stacked = matchMedia('(max-width: 700px)').matches;
+    const width = stacked ? Math.min(700, room) : Math.min(440, (room - 16) / 2);
     drawCrop($('#crop-original'), original, proof.original, width); drawCrop($('#crop-generated'), made, proof.generated, width);
     drawContext($('#context-original'), original, proof.original, 44); drawContext($('#context-generated'), made, proof.generated, 44);
   } catch { $('#generation-content').insertAdjacentHTML('beforeend', '<p class="error">The images could not be loaded.</p>'); }
