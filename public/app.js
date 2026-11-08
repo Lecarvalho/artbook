@@ -14,7 +14,8 @@ const imageURL = image => `/images/${image.filename}`;
 function coverMosaic(style) {
   const shown = style.images.slice(-4).reverse();
   const extra = style.images.length - shown.length;
-  return `<div class="mosaic mosaic-${shown.length}">${shown.map((image, n) => `<span class="mosaic-tile"><img src="${imageURL(image)}" alt="${n ? '' : `${escape(style.name)} reference`}" loading="lazy">${extra && n === shown.length - 1 ? `<span class="mosaic-more">+${extra}</span>` : ''}</span>`).join('')}</div>`;
+  // Each tile knows its image's position, so clicking it opens the modal on that image.
+  return `<div class="mosaic mosaic-${shown.length}">${shown.map((image, n) => `<span class="mosaic-tile" data-slide="${style.images.indexOf(image)}"><img src="${imageURL(image)}" alt="${n ? '' : `${escape(style.name)} reference`}" loading="lazy">${extra && n === shown.length - 1 ? `<span class="mosaic-more">+${extra}</span>` : ''}</span>`).join('')}</div>`;
 }
 const links = query => {
   const q = encodeURIComponent(query);
@@ -26,7 +27,7 @@ async function api(path, options = {}) {
   try { response = await fetch(path, { ...options, headers: { 'X-Artbook-Request': '1', ...options.headers } }); }
   catch { throw Object.assign(new Error('Lost connection to Artbook. Refresh to see the result.'), { network: true }); }
   const data = await response.json();
-  if (!response.ok) throw Object.assign(new Error(data.error || 'Request failed. Please try again.'), { duplicate: data.duplicate });
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Request failed. Please try again.'), { duplicate: data.duplicate, httpStatus: response.status });
   return data;
 }
 const JOBS_KEY = 'artbook-jobs';
@@ -193,7 +194,13 @@ function referencePanel(style) {
           <button role="tab" id="tab-style-prompt" data-prompt-tab="style-prompt" aria-controls="panel-style-prompt">Same style, new subject</button>
         </div><button class="text-button" id="copy-prompt">Copy</button></div>
         <div class="prompt-block" role="tabpanel" id="panel-image-prompt" aria-labelledby="tab-image-prompt"><p id="image-prompt"></p><p class="prompt-colors" hidden></p></div>
-        <div class="prompt-block" role="tabpanel" id="panel-style-prompt" aria-labelledby="tab-style-prompt"><p id="style-prompt"></p><p class="prompt-colors" hidden></p><p class="field-hint">Replace the subject in [brackets] with your own.</p></div>
+        <div class="prompt-block" role="tabpanel" id="panel-style-prompt" aria-labelledby="tab-style-prompt"><p id="style-prompt"></p><p class="prompt-colors" hidden></p></div>
+        <div class="generate-row" id="generate-row">
+          <div class="generate-bar"><p class="field-hint">Replace the subject in [brackets] with your own.</p>
+            <button class="text-button test-button" id="generate-style" title="Uses the prompt only, not this image. Takes a few minutes and uses your Codex allowance."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.4A2 2 0 0 0 7.3 20.5h9.4a2 2 0 0 0 1.7-3.1l-4.9-8.7V3.5M7.8 14h8.4"/></svg><span id="generate-label">Test this prompt</span></button></div>
+          <div class="generate-progress" id="generate-progress" hidden><span id="generate-status" role="status"></span><span class="step-dots" id="step-dots" aria-hidden="true">${'<i></i>'.repeat(5)}</span><span class="generate-thought" id="generate-thought" hidden></span></div>
+          <div class="tests" id="tests" hidden><p class="tests-label">Tests</p><div id="generations" class="generations" role="group" aria-label="Test generations"></div></div>
+        </div>
       </div>
       <p id="prompts-missing" class="field-hint">No prompts yet for this image. Re-identify it to create them.</p>
       <p id="reidentify-status" role="status"></p><p id="move-error" role="alert"></p>
@@ -238,6 +245,7 @@ function showPromptTab(name) {
   promptTab = name;
   document.querySelectorAll('[data-prompt-tab]').forEach(tab => { const on = tab.dataset.promptTab === active; tab.setAttribute('aria-selected', on); tab.tabIndex = on ? 0 : -1; });
   ['image-prompt', 'style-prompt'].forEach(id => { $(`#panel-${id}`).hidden = id !== active; });
+  $('#generate-row').hidden = active !== 'style-prompt';
 }
 function selectImage(index) {
   const style = styles.find(s => s.id === selectedStyle);
@@ -267,6 +275,7 @@ function selectImage(index) {
   showPromptTab(promptTab);
   showPalette();
   markAnalyzing();
+  renderGenerations();
   $('#reidentify-status').textContent = ''; $('#move-error').textContent = '';
   resetDelete();
   // Show where the reference came from whenever its source link is known.
@@ -283,6 +292,7 @@ let heroIndex = 0; // last settled slide, used to keep position when the window 
 function openLightbox(index) {
   const image = styles.find(s => s.id === selectedStyle)?.images[index]; if (!image) return;
   const img = $('#lightbox-image');
+  delete $('#lightbox').dataset.generated;
   img.alt = image.originalName;
   img.onload = fitLightbox;
   img.src = imageURL(image);
@@ -410,6 +420,7 @@ function showPalette() {
   document.querySelectorAll('.prompt-colors').forEach(line => {
     line.hidden = box.hidden;
     line.textContent = box.hidden ? '' : `Color palette: ${description}.`;
+    if (!box.hidden) colorCodes(line);
   });
   if (box.hidden) return;
   if (box.dataset.colors === palette.map(c => c.hex).join()) return;
@@ -423,6 +434,19 @@ function showPalette() {
     swatch.style.setProperty('background', hex);
     swatch.onclick = async () => { try { await copyText(hex); toast(`${hex} copied.`); } catch { toast('Select the color code and copy it manually.'); } };
     return swatch;
+  }));
+}
+// Puts a small color dot before each hex code in a prompt's palette line. The dots carry no text,
+// so the line's textContent (what Copy sends) stays exactly the prompt.
+function colorCodes(line) {
+  const parts = line.textContent.split(/(#[0-9a-f]{6}\b)/i);
+  line.replaceChildren(...parts.map(part => {
+    if (!/^#[0-9a-f]{6}$/i.test(part)) return document.createTextNode(part);
+    const code = document.createElement('span'), dot = document.createElement('i');
+    code.className = 'color-code'; dot.setAttribute('aria-hidden', 'true');
+    dot.style.setProperty('background', part); // set from script: the CSP blocks inline style attributes
+    code.append(dot, part);
+    return code;
   }));
 }
 // Washes the whole style modal with a light version of the current image's color.
@@ -470,12 +494,12 @@ function setupCarousel(slide = 0) {
     if (next) { showPromptTab(next.dataset.promptTab); next.focus(); }
   });
   $('#copy-prompt').onclick = async () => {
-    const panel = document.querySelector('.prompt-block:not([hidden])');
-    const text = [...panel.querySelectorAll('p:not(.field-hint):not([hidden])')].map(p => p.textContent).filter(Boolean).join('\n\n');
-    try { await copyText(text); toast('Prompt copied.'); }
+    try { await copyText(promptText(document.querySelector('.prompt-block:not([hidden])'))); toast('Prompt copied.'); }
     catch { toast('Select the prompt and copy it manually.'); }
   };
   $('#reidentify-image').onclick = reidentifyImage;
+  $('#generate-style').onclick = generateFromPrompt;
+  $('#generations').onclick = generationClick;
   let frame;
   track.addEventListener('scroll', () => {
     cancelAnimationFrame(frame);
@@ -497,7 +521,8 @@ function setupCarousel(slide = 0) {
   document.querySelectorAll('[data-slide]').forEach(button => button.onclick = () => goToSlide(Number(button.dataset.slide)));
 }
 document.addEventListener('keydown', event => {
-  if (!$('#style-dialog').open || $('#edit-dialog').open || !$('.hero-nav')) return;
+  if (!$('#style-dialog').open || $('#edit-dialog').open || $('#generation-dialog').open || !$('.hero-nav')) return;
+  if ($('#lightbox').open && $('#lightbox').dataset.generated) return; // arrows step through references, not test images
   if (event.target.closest?.('input, textarea, select, [role=tablist]')) return;
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     event.preventDefault();
@@ -552,6 +577,11 @@ const liveRecords = new Map();   // jobs started by this page load, with extras 
 const jobRows = new Map();       // import job id -> row element
 const appliedJobs = new Set();   // jobs whose final result was already applied
 const reidentifying = new Map(); // imageId -> 'queued' | 'running'
+const generateErrors = new Map(); // imageId -> why the last test generation failed, shown under the button
+const retryErrors = new Map();    // generationId -> why the last "Try again" failed, shown in the test dialog
+const retrying = new Map();       // imageId -> generationId while a "Try again" for that test runs
+const liveJobs = new Map();       // imageId -> latest polled state of its test job (step, log, refined, judged)
+const generating = new Map();    // imageId -> 'queued' | server step (generate-1, judge-1, recalibrate, generate-2, judge-2)
 let polling = false;
 function showImportPanel() {
   const rows = [...$('#import-items').children];
@@ -570,9 +600,40 @@ async function applyJob(record, state) {
   if (record.kind === 'import') {
     const row = jobRows.get(record.id);
     if (row) importRow(row, { ...record, ...state, name: state.name || record.name, preview: record.preview || (state.filename ? imageURL(state) : null) });
-  } else if (!finished) { reidentifying.set(record.imageId, state.status === 'running' ? 'running' : 'queued'); markAnalyzing(); }
+  } else if (!finished && record.kind === 'generate') {
+    generating.set(record.imageId, state.status === 'running' ? state.step || 'running' : 'queued');
+    liveJobs.set(record.imageId, state);
+    if (record.generationId) retrying.set(record.imageId, record.generationId);
+    markGenerating();
+  }
+  else if (!finished) { reidentifying.set(record.imageId, state.status === 'running' ? 'running' : 'queued'); markAnalyzing(); }
   if (!finished) { if (record.kind === 'import') importSummary(); return; }
   appliedJobs.add(record.id); untrackJob(record.id); liveRecords.delete(record.id);
+  if (record.kind === 'generate') {
+    generating.delete(record.imageId); retrying.delete(record.imageId); liveJobs.delete(record.imageId);
+    // The generate routes only answer 404 when the running server predates them.
+    const failure = state.status === 'done' ? null : state.status === 'missing' ? 'Test generation was interrupted because Artbook restarted.'
+      : state.httpStatus === 404 ? 'Artbook is running an older version without this feature. Close it and start it again.' : state.error;
+    // A failed retry is reported inside its test's dialog; a failed new test under the button.
+    const errors = record.generationId ? retryErrors : generateErrors, key = record.generationId || record.imageId;
+    if (failure) errors.set(key, failure); else errors.delete(key);
+    await refresh();
+    // Re-render the open modal so the new generation (or attempt) appears, and open it on its newest attempt.
+    if ($('#style-dialog').open && selectedImage?.id === record.imageId) {
+      reselectImage();
+      if (state.status === 'done') {
+        showPromptTab('style-prompt');
+        const id = record.generationId || selectedImage?.generations?.at(-1)?.id;
+        if (id && (!record.generationId || $('#generation-dialog').open)) openGeneration(id, -1);
+      }
+    } else markGenerating();
+    if ($('#generation-dialog').open) renderRetryStatus();
+    if (failure) return toast(failure);
+    const generation = state.result.images.find(i => i.id === record.imageId)?.generations?.find(g => g.id === record.generationId) || state.result.images.find(i => i.id === record.imageId)?.generations?.at(-1);
+    if (!generation) return toast('Test generation saved.');
+    if (record.generationId) return toast(`Attempt ${generation.attempts.length} · ${generation.attempts.at(-1).similarity}% style match.`);
+    return toast(`Test generation saved · ${Math.max(...generation.attempts.map(a => a.similarity))}% style match.`);
+  }
   if (record.kind === 'import') {
     if (record.preview) URL.revokeObjectURL(record.preview);
     if (state.status === 'done') await refresh();
@@ -587,7 +648,7 @@ async function applyJob(record, state) {
 // Sends a job request; the response settles it directly, the poller reports queue position meanwhile.
 function sendJob(live, path, options) {
   liveRecords.set(live.id, live);
-  trackJob({ id: live.id, kind: live.kind, name: live.name, styleId: live.styleId, imageId: live.imageId, sourceStyleId: live.sourceStyleId });
+  trackJob({ id: live.id, kind: live.kind, name: live.name, styleId: live.styleId, imageId: live.imageId, sourceStyleId: live.sourceStyleId, generationId: live.generationId });
   api(path, { ...options, headers: { ...options.headers, 'X-Job-Id': live.id } }).then(
     result => applyJob(live, { status: 'done', result }),
     error => {
@@ -598,7 +659,7 @@ function sendJob(live, path, options) {
         jobRows.get(live.id)?.remove(); jobRows.delete(live.id);
         return importFiles([live.fallback]);
       }
-      applyJob(live, { status: 'error', error: error.message, duplicate: error.duplicate });
+      applyJob(live, { status: 'error', error: error.message, duplicate: error.duplicate, httpStatus: error.httpStatus });
     });
   pollJobs();
 }
@@ -638,7 +699,8 @@ async function checkConnection() {
 document.addEventListener('click', event => {
   const tag = event.target.closest('[data-tag]');
   if (tag) { $('#search').value = tag.dataset.tag; $('#style-dialog').close(); render(); }
-  const style = event.target.closest('[data-style]'); if (style) showStyle(style.dataset.style);
+  const style = event.target.closest('[data-style]');
+  if (style) showStyle(style.dataset.style, Number(event.target.closest('[data-slide]')?.dataset.slide) || 0);
 });
 document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => {
   view = button.dataset.view;
@@ -767,6 +829,7 @@ function resetDelete() {
 async function deleteImage() {
   const button = $('#delete-image');
   if (reidentifying.has(selectedImage.id)) return toast('This image is being identified. Delete it when that finishes.');
+  if (generating.has(selectedImage.id)) return toast('This image has a test generation in progress. Delete it when that finishes.');
   if (!button.classList.contains('armed')) {
     button.classList.add('armed'); button.textContent = 'Click again to delete permanently';
     resetDelete.timer = setTimeout(resetDelete, 4000);
@@ -797,7 +860,8 @@ function resumeJobs() {
   const imports = tracked.filter(j => j.kind === 'import');
   if (imports.length) { showImportPanel(); imports.forEach(record => addImportRow(record, { status: 'queued' })); }
   tracked.filter(j => j.kind === 'reclassify').forEach(record => reidentifying.set(record.imageId, 'queued'));
-  markAnalyzing();
+  tracked.filter(j => j.kind === 'generate').forEach(record => { generating.set(record.imageId, 'queued'); if (record.generationId) retrying.set(record.imageId, record.generationId); });
+  markAnalyzing(); markGenerating();
   pollJobs();
 }
 refresh().then(resumeJobs).catch(error => { $('#load-error').hidden = false; $('#load-error').textContent = `Could not load your library: ${error.message}. Refresh to retry.`; });
@@ -838,6 +902,249 @@ function reidentifyImage() {
   reidentifying.set(imageId, 'queued'); markAnalyzing();
   sendJob({ id: newJobId(), kind: 'reclassify', imageId, sourceStyleId: selectedStyle, live: true }, '/api/reclassify',
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId }) });
+}
+
+// ---- Test generations ----
+// "Generate & compare" sends the style prompt (as copied, palette line included) without the image. The server
+// generates, rates the style match against this image, and retries once with a refined prompt when the match is low.
+// Same rule as the server: a test prompt minus its trailing palette line, whitespace collapsed.
+const stylePromptOf = prompt => prompt.replace(/\s*Color palette:[^]*$/i, '').trim().replace(/\s+/g, ' ').slice(0, 1500);
+const promptText = panel => [...panel.querySelectorAll(':scope > p:not(.field-hint):not([hidden])')].map(p => p.textContent).filter(Boolean).join('\n\n');
+const GENERATE_STEPS = { queued: 'Waiting in line…', running: 'Setting up…', 'generate-1': 'Painting from the prompt…', 'judge-1': 'Critiquing it against the original…', recalibrate: 'Low match. Reworking the prompt…', 'generate-2': 'Painting a second study…', 'judge-2': 'Critiquing the second study…',
+  'retry-recalibrate': 'Reworking the prompt from the last critique…', 'generate-retry': 'Painting a new study…', 'judge-retry': 'Critiquing it against the original…' };
+const TRAIT_LABELS = { palette: 'Palette', linework: 'Linework', rendering: 'Rendering', texture: 'Texture', lighting: 'Lighting', shapes: 'Shapes' };
+function generateFromPrompt() {
+  const image = selectedImage; if (!image || generating.has(image.id)) return;
+  const prompt = promptText($('#panel-style-prompt'));
+  if (!prompt) return toast('This image has no style prompt yet. Re-identify it first.');
+  generateErrors.delete(image.id); generating.set(image.id, 'queued'); markGenerating();
+  sendJob({ id: newJobId(), kind: 'generate', imageId: image.id, live: true }, '/api/generate',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: image.id, prompt }) });
+}
+// Server steps in order; the progress dots fill as each one finishes.
+const STEP_ORDER = ['generate-1', 'judge-1', 'recalibrate', 'generate-2', 'judge-2'];
+const RETRY_ORDER = ['retry-recalibrate', 'generate-retry', 'judge-retry'];
+// Fills a .step-dots element for the given step: one dot per step of that kind of run.
+function stepDots(box, state, retry) {
+  const order = retry ? RETRY_ORDER : STEP_ORDER, at = order.indexOf(state);
+  box.hidden = !state;
+  box.innerHTML = order.map((_, n) => `<i class="${n < at ? 'done' : n === at ? 'current' : ''}"></i>`).join('');
+}
+function markGenerating() {
+  const button = $('#generate-style'); if (!button) return;
+  const state = selectedImage ? generating.get(selectedImage.id) : null;
+  const failure = !state && selectedImage ? generateErrors.get(selectedImage.id) : null;
+  button.disabled = !!state || !selectedImage?.stylePrompt;
+  $('#generate-label').textContent = state === 'queued' ? 'Queued' : state ? 'Testing…' : 'Test this prompt';
+  $('#generate-progress').hidden = !state && !failure;
+  $('#generate-progress').classList.toggle('failed', !!failure);
+  $('#generate-status').textContent = state ? GENERATE_STEPS[state] || 'Working…' : failure || '';
+  stepDots($('#step-dots'), state, retrying.has(selectedImage?.id));
+  const live = state ? liveJobs.get(selectedImage.id) : null;
+  const first = live?.judged?.[0] && !retrying.has(selectedImage.id) ? `Attempt 1: ${live.judged[0].similarity}%. ` : '';
+  const thought = live?.log?.at(-1)?.text || '';
+  $('#generate-thought').textContent = first + thought;
+  $('#generate-thought').hidden = !(first || thought);
+  if ($('#generation-dialog').open) renderRetryStatus();
+}
+// Refreshes the details of the selected image in place (after the library changed) without rebuilding the carousel.
+function reselectImage() {
+  const index = styles.find(s => s.id === selectedStyle)?.images.findIndex(i => i.id === selectedImage?.id) ?? -1;
+  if (index < 0) return markGenerating();
+  selectedImage = null; selectImage(index);
+}
+// Each test shows as a small thumbnail with its best style match; selecting it opens the test's own dialog.
+function renderGenerations() {
+  const box = $('#generations'); if (!box) return;
+  markGenerating();
+  $('#tests').hidden = !selectedImage?.generations?.length;
+  box.innerHTML = [...(selectedImage?.generations || [])].reverse().map(g => {
+    const best = g.attempts.reduce((a, b) => b.similarity > a.similarity ? b : a);
+    return `<button class="generation-chip" data-open-generation="${escape(g.id)}" aria-label="Open test generation, best style match ${best.similarity}%"><img src="/images/generated/${escape(best.filename)}" alt="" loading="lazy"><span>${best.similarity}%</span></button>`;
+  }).join('');
+  if ($('#generation-dialog').open) renderGenerationDialog();
+}
+let openGenerationId = null, openAttempt = -1; // -1 = the newest attempt
+const ICONS = {
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-.5a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h.5"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  trash: '<path d="M4.5 7h15M10 4h4M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12"/>',
+  retry: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v3.8h-3.8"/>'
+};
+const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+const MAX_TEST_ATTEMPTS = 8; // same cap as the server
+const signed = n => n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0';
+// One tab per attempt; the open tab shows that attempt beside the original with its reasoning and prompt.
+function renderGenerationDialog() {
+  const g = selectedImage?.generations?.find(x => x.id === openGenerationId);
+  if (!g) return $('#generation-dialog').close();
+  const target = g.target ?? 70;
+  const live = openAttempt === 'live' && !!retryState(g);
+  const n = live || openAttempt === 'live' || openAttempt < 0 || openAttempt >= g.attempts.length ? g.attempts.length - 1 : openAttempt;
+  const a = g.attempts[n], before = g.attempts[n - 1];
+  const best = g.attempts.reduce((top, x, i) => x.similarity > g.attempts[top].similarity ? i : top, 0);
+  const date = new Date(g.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const applied = stylePromptOf(a.prompt) === selectedImage.stylePrompt;
+  const change = a.change || (n === 1 ? g.recalibration : null); // tests saved before per-attempt notes kept one note on the test
+  $('#generation-title').textContent = `Test generation · ${date}`;
+  $('#generation-content').innerHTML = `
+    <p class="form-intro">Painted from the prompt alone, then held against the original. Match is the mean of six trait scores.</p>
+    <div class="attempt-tabs" role="tablist" aria-label="Attempts">${g.attempts.map((x, i) => `<button role="tab" id="attempt-tab-${i}" aria-controls="attempt-panel" aria-selected="${!live && i === n}" tabindex="${!live && i === n ? 0 : -1}" data-attempt="${i}">
+      <span>Attempt ${i + 1}</span><strong class="${x.similarity >= target ? '' : 'match-low'}">${x.similarity}%</strong>${i === best && g.attempts.length > 1 ? '<em>Best</em>' : ''}</button>`).join('')}
+      <button role="tab" class="attempt-pending" id="attempt-tab-live" aria-controls="attempt-panel" aria-selected="${live}" tabindex="${live ? 0 : -1}" data-attempt="live" hidden><span>Attempt ${g.attempts.length + 1}</span><i></i></button></div>
+    <div id="attempt-panel" role="tabpanel" aria-labelledby="attempt-tab-${live ? 'live' : n}">${live ? '<div class="live-attempt" id="live-attempt"></div>' : `
+      <div class="generation-compare">
+        <figure class="attempt"><button class="attempt-image" data-generated aria-label="View the original larger"><img src="${imageURL(selectedImage)}" alt="Original reference"></button><figcaption><strong>Original</strong></figcaption></figure>
+        <figure class="attempt"><button class="attempt-image" data-generated aria-label="View attempt ${n + 1} larger"><img src="/images/generated/${escape(a.filename)}" alt="Generated in attempt ${n + 1}"></button>
+          <figcaption><strong class="${a.similarity >= target ? '' : 'match-low'}">${a.similarity}% style match</strong>${before ? `<span>${signed(a.similarity - before.similarity)} from attempt ${n}</span>` : '<span>Prompt as written</span>'}</figcaption></figure>
+      </div>
+      ${n === g.attempts.length - 1 && g.error ? `<p class="error">${escape(g.error)}</p>` : ''}
+      <div class="generation-notes">
+        <section>
+          ${change ? `<h3>Adjustments</h3><p>${escape(change)}</p>` : ''}
+          <h3>Critique</h3>${a.summary ? `<p>${escape(a.summary)}</p>` : ''}
+          ${a.differences.length ? `<ul>${a.differences.map(d => `<li>${escape(d)}</li>`).join('')}</ul>` : ''}
+        </section>
+        <section>
+          <h3>Trait scores</h3>
+          <dl class="trait-scores">${Object.entries(a.scores).map(([trait, score]) => {
+            const delta = before ? score - (before.scores[trait] ?? score) : 0;
+            return `<div><dt>${TRAIT_LABELS[trait] || escape(trait)}</dt><dd>${score}${before && delta ? `<span class="${delta > 0 ? 'up' : 'down'}">${signed(delta)}</span>` : ''}</dd></div>`;
+          }).join('')}</dl>
+          <details><summary>Prompt used</summary><p class="generation-prompt">${escape(a.prompt)}</p></details>
+          <div class="attempt-actions">
+            <button class="text-button dialog-action" data-copy-generation="${n}">${icon('copy')}Copy prompt</button>
+            ${applied ? `<span class="dialog-action generation-applied">${icon('check')}This is the style prompt</span>`
+              : `<button class="text-button dialog-action" data-use-prompt="${n}">${icon('check')}Use as style prompt</button>`}
+          </div>
+        </section>
+      </div>`}
+    </div>
+    <div class="generation-actions">
+      <button class="text-button dialog-action danger-action" id="delete-generation">${icon('trash')}<span>Delete test</span></button>
+      <div class="retry-box"><span class="retry-status" id="retry-status" role="status"></span><span class="step-dots" id="retry-dots" aria-hidden="true" hidden></span>
+        <button class="primary retry-button" id="retry-generation">${icon('retry')}<span id="retry-label">Try again</span></button></div>
+    </div>`;
+  renderRetryStatus();
+  $('#generation-content').querySelectorAll('.generation-prompt').forEach(colorCodes);
+}
+// The polled step of a "Try again" running for this test, or null.
+const retryState = g => selectedImage && retrying.get(selectedImage.id) === g.id ? generating.get(selectedImage.id) || null : null;
+// The attempt in progress: the refined prompt and its change as soon as they exist, then Codex's reasoning lines as they arrive.
+function liveAttempt(step) {
+  const state = liveJobs.get(selectedImage.id) || {}, refined = state.refined;
+  const notes = (state.log || []).map(l => `<li>${escape(l.text)}</li>`).join('');
+  const now = step === 'queued' ? 'Waiting in line' : GENERATE_STEPS[step]?.replace(/…$/, '') || 'Starting';
+  return `<div class="generation-notes">
+      <section>
+        <h3>Adjustments</h3><p>${refined?.change ? escape(refined.change) : refined ? 'Refined.' : '<span class="muted">Reading the last critique…</span>'}</p>
+        ${refined ? `<h3>Reworked prompt</h3><p class="generation-prompt live-prompt">${escape(refined.prompt)}</p>` : ''}
+      </section>
+      <section>
+        <h3>Studio notes</h3>
+        <ul class="live-log">${notes}<li class="live-now">${escape(now)}<i></i></li></ul>
+      </section>
+    </div>`;
+}
+// Updates only the dialog's progress (polled while a retry runs), leaving open disclosures and scroll alone.
+function renderRetryStatus() {
+  const g = selectedImage?.generations?.find(x => x.id === openGenerationId), button = $('#retry-generation');
+  if (!g || !button) return;
+  const running = retryState(g);
+  // The live tab closes itself when the run ends (the finished attempt then opens in its own tab).
+  if (!running && openAttempt === 'live') { openAttempt = -1; return renderGenerationDialog(); }
+  if (running && openAttempt === 'live' && !$('#live-attempt')) return renderGenerationDialog();
+  if ($('#live-attempt')) { $('#live-attempt').innerHTML = liveAttempt(running); $('#live-attempt').querySelectorAll('.generation-prompt').forEach(colorCodes); }
+  const otherJob = !running && generating.has(selectedImage.id);
+  const full = g.attempts.length >= MAX_TEST_ATTEMPTS;
+  const failure = !running ? retryErrors.get(g.id) : null;
+  button.disabled = !!running || otherJob || full;
+  $('#retry-label').textContent = running === 'queued' ? 'Queued' : running ? 'Trying again…' : 'Try again';
+  button.title = full ? `A test keeps at most ${MAX_TEST_ATTEMPTS} attempts. Start a new test from the prompt tab.` : 'Refines the newest prompt, generates once more and compares. Takes a few minutes and uses your Codex allowance.';
+  const status = $('#retry-status');
+  status.textContent = running ? GENERATE_STEPS[running] || 'Working…' : failure || (full ? `${MAX_TEST_ATTEMPTS} attempts, the most a test keeps` : otherJob ? 'Another test is running for this image' : '');
+  status.classList.toggle('failed', !!failure);
+  stepDots($('#retry-dots'), running && running !== 'queued' && running !== 'running' ? running : null, true);
+  $('#attempt-tab-live').hidden = !running;
+  $('#delete-generation').disabled = !!running;
+}
+// Re-rendering removes the focused control; keep focus on the open tab rather than letting it fall to the close button.
+const focusAttemptTab = () => $('#generation-content [role=tab][aria-selected=true]')?.focus({ preventScroll: true });
+function openGeneration(id, attempt = -1) {
+  openGenerationId = id; openAttempt = attempt;
+  renderGenerationDialog();
+  if ($('#generation-dialog').open) focusAttemptTab(); else $('#generation-dialog').showModal();
+  $('#generation-dialog').scrollTop = 0;
+}
+$('#close-generation').onclick = () => $('#generation-dialog').close();
+function generationClick(event) {
+  const chip = event.target.closest('[data-open-generation]');
+  if (chip) openGeneration(chip.dataset.openGeneration);
+}
+function selectAttempt(value) {
+  openAttempt = value === 'live' ? 'live' : Number(value);
+  renderGenerationDialog(); $(`#attempt-tab-${value}`)?.focus();
+}
+function retryGeneration(generation) {
+  const imageId = selectedImage.id;
+  if (generating.has(imageId)) return;
+  retryErrors.delete(generation.id); generating.set(imageId, 'queued'); retrying.set(imageId, generation.id); liveJobs.delete(imageId);
+  openAttempt = 'live'; markGenerating(); renderGenerationDialog(); focusAttemptTab();
+  sendJob({ id: newJobId(), kind: 'generate', imageId, generationId: generation.id, live: true },
+    `/api/images/${encodeURIComponent(imageId)}/generations/${encodeURIComponent(generation.id)}/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+}
+$('#generation-content').addEventListener('keydown', event => {
+  const tab = event.target.closest('[data-attempt]');
+  if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const tabs = [...$('#generation-content').querySelectorAll('[data-attempt]:not([hidden])')], at = tabs.indexOf(tab);
+  const next = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (at + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+  event.preventDefault(); selectAttempt(next.dataset.attempt);
+});
+$('#generation-content').addEventListener('click', async event => {
+  const generation = selectedImage?.generations?.find(g => g.id === openGenerationId); if (!generation) return;
+  const tab = event.target.closest('[data-attempt]');
+  if (tab) return selectAttempt(tab.dataset.attempt);
+  const view = event.target.closest('[data-generated]');
+  if (view) return openGeneratedLightbox(view);
+  if (event.target.closest('#retry-generation')) return retryGeneration(generation);
+  const copy = event.target.closest('[data-copy-generation]');
+  if (copy) {
+    try { await copyText(generation.attempts[Number(copy.dataset.copyGeneration)].prompt); toast('Prompt copied.'); }
+    catch { toast('Select the prompt and copy it manually.'); }
+    return;
+  }
+  const use = event.target.closest('[data-use-prompt]');
+  if (use) {
+    use.disabled = true;
+    try {
+      await api(`/api/images/${encodeURIComponent(selectedImage.id)}/generations/${encodeURIComponent(generation.id)}/use-prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attempt: Number(use.dataset.usePrompt) }) });
+      const keep = openAttempt;
+      await refresh(); reselectImage(); openAttempt = keep; renderGenerationDialog(); toast('Style prompt updated.');
+    } catch (error) { use.disabled = false; toast(error.message); }
+    return;
+  }
+  const remove = event.target.closest('#delete-generation'); if (!remove) return;
+  const label = remove.querySelector('span');
+  if (!remove.classList.contains('armed')) {
+    remove.classList.add('armed'); label.textContent = 'Click again to delete';
+    setTimeout(() => { remove.classList.remove('armed'); label.textContent = 'Delete test'; }, 4000);
+    return;
+  }
+  remove.disabled = true;
+  try {
+    await api(`/api/images/${encodeURIComponent(selectedImage.id)}/generations/${encodeURIComponent(generation.id)}`, { method: 'DELETE' });
+    $('#generation-dialog').close();
+    await refresh(); reselectImage(); toast('Test generation deleted.');
+  } catch (error) { remove.disabled = false; toast(error.message); }
+});
+function openGeneratedLightbox(button) {
+  const img = $('#lightbox-image'), source = button.querySelector('img');
+  img.alt = source.alt; img.onload = fitLightbox; img.src = source.src;
+  if (img.complete) fitLightbox();
+  const tint = $('#style-dialog').style.getPropertyValue('--tint');
+  if (tint) $('#lightbox').style.setProperty('--tint', tint); else $('#lightbox').style.removeProperty('--tint');
+  $('#lightbox').dataset.generated = '1';
+  if (!$('#lightbox').open) $('#lightbox').showModal();
 }
 
 // Close a modal when the backdrop (outside the panel) is clicked. Both press and release must land outside,

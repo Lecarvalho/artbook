@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "palette": { "type": "integer" },
+        "linework": { "type": "integer" },
+        "rendering": { "type": "integer" },
+        "texture": { "type": "integer" },
+        "lighting": { "type": "integer" },
+        "shapes": { "type": "integer" }
+      },
+      "required": ["palette", "linework", "rendering", "texture", "lighting", "shapes"]
+    },
+    "differences": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "string" }
+  },
+  "required": ["scores", "differences", "summary"]
+}

@@ -182,3 +182,111 @@ test('imports record AI origin from file metadata and visible watermarks, and no
   watermark = null;
   assert.equal((await send(variant(31))).aiOrigin, null);
 });
+
+test('test generations retry once below the target, keep both attempts and their reasoning, and clean up files', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'artbook-generate-'));
+  const prompts = [], judged = [], histories = [];
+  let scores = [40, 82], failGenerate = false, failSecond = false, reclassifies = 0;
+  const judgement = score => ({ scores: { palette: score, linework: score, rendering: score, texture: score, lighting: score, shapes: score + 6 }, differences: ['lines too thin', ''], summary: 'Close family, different linework.' });
+  const server = await makeApp({
+    dataDir: dir, status: async () => ({ connected: true }),
+    analyze: async () => { reclassifies++; return { name: 'Bold ink cartoon', keywords: ['ink cartoon'], tags: ['thick ink lines', 'flat color', 'simple shapes'], details: { stylePrompt: '[a lighthouse] thick ink lines' } }; },
+    generate: async (prompt, job) => {
+      assert.ok(job.startsWith(dir), 'generation work happens in the data directory');
+      prompts.push(prompt);
+      if (failGenerate || (failSecond && prompts.length > 1)) throw new Error('Generator declined.');
+      return variant(100 + prompts.length);
+    },
+    judge: async (original, generated) => { judged.push([original, generated]); return judgement(scores.shift()); },
+    recalibrate: async (_original, prompt, critique, _job, history, { onThought } = {}) => { assert.deepEqual(critique.differences, ['lines too thin']); histories.push(history.map(a => a.similarity)); onThought?.('Linework trails; pushing contour weight'); return { prompt: `${prompt}, heavier tapering lines\n\nColor palette: dominant #FFFFFF.`, changes: 'Asked for heavier lines.' }; },
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const headers = { 'X-Artbook-Request': '1' };
+  const { image } = await (await fetch(`${base}/api/import`, { method: 'POST', headers, body: png })).json();
+  const generate = prompt => fetch(`${base}/api/generate`, { method: 'POST', headers, body: JSON.stringify({ imageId: image.id, prompt }) });
+  const stored = async () => JSON.parse(await readFile(join(dir, 'library.json'))).styles.flatMap(s => s.images).find(i => i.id === image.id);
+  const generatedFiles = async () => (await import('node:fs/promises')).readdir(join(dir, 'images', 'generated')).catch(() => []);
+
+  // Low first score: the prompt is refined from the critique and tried once more, then it stops.
+  let response = await generate('[a lighthouse] thick ink lines');
+  assert.equal(response.status, 200);
+  let generation = (await response.json()).images.find(i => i.id === image.id).generations[0];
+  assert.deepEqual(prompts, ['[a lighthouse] thick ink lines', '[a lighthouse] thick ink lines, heavier tapering lines\n\nColor palette: dominant #FFFFFF.']);
+  assert.equal(generation.attempts.length, 2);
+  assert.deepEqual(generation.attempts.map(a => a.similarity), [41, 83], 'similarity is the mean of the six trait scores');
+  assert.equal(generation.attempts[0].change, null);
+  assert.equal(generation.attempts[1].change, 'Asked for heavier lines.');
+  assert.deepEqual(generation.attempts[0].differences, ['lines too thin']);
+  assert.ok(judged.every(([original]) => original === join(dir, 'images', image.filename)), 'each attempt is judged against the original');
+  for (const attempt of generation.attempts) {
+    const served = await fetch(`${base}/images/generated/${attempt.filename}`);
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get('content-type'), 'image/png; charset=utf-8');
+  }
+
+  // The refined prompt can become the style prompt, without the palette line the interface adds.
+  response = await fetch(`${base}/api/images/${image.id}/generations/${generation.id}/use-prompt`, { method: 'POST', headers, body: JSON.stringify({ attempt: 1 }) });
+  assert.equal(response.status, 200);
+  assert.equal((await stored()).stylePrompt, '[a lighthouse] thick ink lines, heavier tapering lines');
+  assert.equal((await fetch(`${base}/api/images/${image.id}/generations/${generation.id}/use-prompt`, { method: 'POST', headers, body: JSON.stringify({ attempt: 5 }) })).status, 400);
+  assert.equal((await fetch(`${base}/api/images/${image.id}/generations/${generation.id}/use-prompt`, { method: 'POST', body: JSON.stringify({ attempt: 1 }) })).status, 403);
+
+  // Try again refines the newest attempt's prompt, knowing every earlier attempt, and appends one more attempt.
+  prompts.length = 0; scores = [90];
+  const retry = (id, jobId) => fetch(`${base}/api/images/${image.id}/generations/${id}/retry`, { method: 'POST', headers: jobId ? { ...headers, 'X-Job-Id': jobId } : headers, body: '{}' });
+  response = await retry(generation.id, 'retry-job-0001');
+  assert.equal(response.status, 200);
+  // The job carries live progress for the page to follow: reasoning lines, the reworked prompt, the judged attempt.
+  const [live] = await (await fetch(`${base}/api/jobs?ids=retry-job-0001`, { headers })).json();
+  assert.deepEqual(live.log, [{ step: 'retry-recalibrate', text: 'Linework trails; pushing contour weight' }]);
+  assert.equal(live.refined.change, 'Asked for heavier lines.');
+  assert.deepEqual(live.judged.map(j => j.similarity), [91]);
+  generation = (await response.json()).images.find(i => i.id === image.id).generations[0];
+  assert.equal(generation.attempts.length, 3);
+  assert.equal(prompts.length, 1); assert.ok(prompts[0].startsWith(generation.attempts[1].prompt), 'the retry starts from the newest prompt');
+  assert.deepEqual(histories.at(-1), [41, 83]);
+  assert.equal(generation.attempts[2].similarity, 91); assert.equal(generation.attempts[2].change, 'Asked for heavier lines.');
+  // A test keeps at most eight attempts; unknown tests are rejected.
+  scores = [50, 50, 50, 50, 50];
+  for (let n = 0; n < 5; n++) assert.equal((await retry(generation.id)).status, 200);
+  response = await retry(generation.id);
+  assert.equal(response.status, 400); assert.match((await response.json()).error, /at most 8 attempts/);
+  assert.equal((await stored()).generations[0].attempts.length, 8);
+  assert.equal((await retry('missing-generation')).status, 400);
+  assert.equal((await fetch(`${base}/api/images/${image.id}/generations/${generation.id}/retry`, { method: 'POST', body: '{}' })).status, 403);
+
+  // At or above the target, there is a single attempt.
+  prompts.length = 0; scores = [75];
+  generation = (await (await generate('[a fox] thick ink lines')).json()).images.find(i => i.id === image.id).generations[1];
+  assert.equal(generation.attempts.length, 1); assert.equal(prompts.length, 1);
+
+  // A failed retry keeps the first attempt and records why.
+  prompts.length = 0; scores = [30]; failSecond = true;
+  generation = (await (await generate('[a boat] thick ink lines')).json()).images.find(i => i.id === image.id).generations[2];
+  assert.equal(generation.attempts.length, 1); assert.match(generation.error, /Second attempt failed: Generator declined/);
+  assert.equal((await generatedFiles()).length, 10);
+
+  // A failed first attempt leaves the image unchanged and writes no files.
+  failGenerate = true; failSecond = false;
+  response = await generate('[a tree] thick ink lines');
+  assert.equal(response.status, 400); assert.match((await response.json()).error, /Generator declined/);
+  assert.equal((await stored()).generations.length, 3);
+  assert.equal((await generatedFiles()).length, 10);
+  assert.equal((await generate('')).status, 400, 'an empty prompt is rejected');
+
+  // Re-identifying keeps generations; deleting one removes its files; deleting the image removes the rest.
+  assert.equal((await fetch(`${base}/api/reclassify`, { method: 'POST', headers, body: JSON.stringify({ imageId: image.id }) })).status, 200);
+  assert.equal(reclassifies, 2);
+  const kept = (await stored()).generations;
+  assert.equal(kept.length, 3);
+  response = await fetch(`${base}/api/images/${image.id}/generations/${kept[0].id}`, { method: 'DELETE', headers });
+  assert.equal(response.status, 200);
+  assert.equal((await stored()).generations.length, 2);
+  assert.equal((await generatedFiles()).length, 2);
+  assert.equal((await fetch(`${base}/images/generated/${kept[0].attempts[0].filename}`)).status, 404);
+  assert.equal((await fetch(`${base}/api/images/${image.id}/generations/${kept[0].id}`, { method: 'DELETE', headers })).status, 400);
+  assert.equal((await fetch(`${base}/api/images/${image.id}`, { method: 'DELETE', headers })).status, 200);
+  assert.equal((await generatedFiles()).length, 0);
+});

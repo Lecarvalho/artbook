@@ -46,6 +46,39 @@ export function validateImageDetails(value = {}) {
 export function validateAiOrigin(value) {
   return value && ['confirmed', 'likely'].includes(value.status) && typeof value.evidence === 'string' ? { status: value.status, evidence: value.evidence.slice(0, 120) } : null;
 }
+// Style traits a test generation is rated on, each 0–100; the similarity is their rounded mean.
+export const STYLE_TRAITS = ['palette', 'linework', 'rendering', 'texture', 'lighting', 'shapes'];
+export function validateJudgement(value) {
+  const scores = Object.fromEntries(STYLE_TRAITS.map(trait => {
+    const score = Number(value?.scores?.[trait]);
+    if (!Number.isFinite(score)) throw new Error('The style comparison came back incomplete. Try again.');
+    return [trait, Math.max(0, Math.min(100, Math.round(score)))];
+  }));
+  const similarity = Math.round(STYLE_TRAITS.reduce((sum, trait) => sum + scores[trait], 0) / STYLE_TRAITS.length);
+  const differences = (Array.isArray(value?.differences) ? value.differences : []).map(d => text(d, 240)).filter(Boolean).slice(0, 6);
+  return { similarity, scores, differences, summary: text(value?.summary, 400) };
+}
+// A test prompt carries the palette line the interface appends to every prompt; the stored style prompt does not.
+export const stylePromptOf = prompt => text(String(prompt).replace(/\s*Color palette:[^]*$/i, ''), 1500);
+const GENERATED_FILE =/^[a-f0-9-]{8,64}\.(png|jpg|webp)$/;
+export const MAX_TEST_ATTEMPTS = 8;
+// One attempt of a test: the generated file, the prompt that made it, its judgement, and what changed from the attempt before.
+export function validateAttempt(attempt) {
+  if (!GENERATED_FILE.test(attempt?.filename || '')) throw new Error('Invalid generated image.');
+  const prompt = text(attempt.prompt, 2500);
+  if (!prompt) throw new Error('Invalid generation prompt.');
+  return { filename: attempt.filename, prompt, change: text(attempt.change, 400) || null, ...validateJudgement(attempt) };
+}
+// A test generation: attempts made from a prompt alone, each rated against the original image. The first run makes
+// one or two; "Try again" adds refined attempts up to MAX_TEST_ATTEMPTS.
+export function validateGeneration(value) {
+  const raw = (Array.isArray(value?.attempts) ? value.attempts : []).slice(0, MAX_TEST_ATTEMPTS);
+  // Older records kept the single refinement note on the test rather than on its second attempt.
+  if (raw[1] && !raw[1].change && value.recalibration) raw[1] = { ...raw[1], change: value.recalibration };
+  const attempts = raw.map(validateAttempt);
+  if (!attempts.length) throw new Error('A generation needs at least one image.');
+  return { id: typeof value.id === 'string' && /^[\w-]{8,64}$/.test(value.id) ? value.id : randomUUID(), createdAt: text(value.createdAt, 40) || new Date().toISOString(), target: Number.isFinite(value.target) ? value.target : null, attempts, error: text(value.error, 300) };
+}
 export function validateStyle(value) {
   if (!value || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 80 || /[\r\n.!?]/.test(value.name)) throw new Error('Use a short style name, up to 80 characters, without sentences.');
   if (!Array.isArray(value.keywords) || value.keywords.length < 1 || value.keywords.length > 8 || value.keywords.some(k => typeof k !== 'string' || !k.trim() || k.length > 100)) throw new Error('Add 1–8 search keywords, each up to 100 characters.');
@@ -127,6 +160,42 @@ export async function createLibrary(directory) {
         target.images.push(image);
       }
       return target;
+    }),
+    addGeneration: (imageId, generation) => change(next => {
+      const style = next.styles.find(s => s.images.some(i => i.id === imageId));
+      if (!style) throw new Error('Image not found.');
+      const image = style.images.find(i => i.id === imageId);
+      image.generations = [...(image.generations || []), validateGeneration(generation)];
+      return style;
+    }),
+    // Appends a refined attempt to an existing test; a successful attempt clears the test's earlier error.
+    addAttempt: (imageId, generationId, attempt) => change(next => {
+      const style = next.styles.find(s => s.images.some(i => i.id === imageId));
+      const generation = style?.images.find(i => i.id === imageId)?.generations?.find(g => g.id === generationId);
+      if (!generation) throw new Error('Generation not found.');
+      if (generation.attempts.length >= MAX_TEST_ATTEMPTS) throw new Error(`A test keeps at most ${MAX_TEST_ATTEMPTS} attempts.`);
+      generation.attempts = [...generation.attempts, validateAttempt(attempt)];
+      generation.error = null;
+      return style;
+    }),
+    // Makes a refined test prompt the image's style prompt. Only prompts stored with a test can be applied.
+    useGenerationPrompt: (imageId, generationId, index) => change(next => {
+      const style = next.styles.find(s => s.images.some(i => i.id === imageId));
+      const image = style?.images.find(i => i.id === imageId);
+      const attempt = image?.generations?.find(g => g.id === generationId)?.attempts[index];
+      if (!attempt) throw new Error('Generation not found.');
+      const prompt = stylePromptOf(attempt.prompt);
+      if (!prompt) throw new Error('This prompt is empty.');
+      image.stylePrompt = prompt;
+      return style;
+    }),
+    removeGeneration: (imageId, generationId) => change(next => {
+      const style = next.styles.find(s => s.images.some(i => i.id === imageId));
+      const image = style?.images.find(i => i.id === imageId);
+      const generation = image?.generations?.find(g => g.id === generationId);
+      if (!generation) throw new Error('Generation not found.');
+      image.generations = image.generations.filter(g => g.id !== generationId);
+      return { style, generation };
     }),
     reclassify: (imageId, input) => change(next => {
       const source = next.styles.find(s => s.images.some(i => i.id === imageId));

@@ -553,10 +553,11 @@ h1 em{display:block}
 /* Identity block: name with the actions button, then tags as a caption line, then thumbnails. */
 .identity-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .identity-row h2{min-width:0}
-.identity-row .menu-wrap{margin-top:6px}
-.identity-row .menu-button{width:32px;height:32px;border-radius:5px;background:transparent;border:1px solid color-mix(in srgb,var(--tint,var(--line)) 25%,var(--line));box-shadow:none}
-.identity-row .menu-button:hover,.identity-row .menu-button[aria-expanded=true]{background:color-mix(in srgb,var(--tint,var(--accent-soft)) 26%,var(--surface))}
-.identity-row .menu-button svg{fill:var(--ink);width:16px;height:16px}
+/* Narrow screens: a borderless round ghost button centred on the name's first line; the dots line up with the text edge. */
+.identity-row .menu-wrap{margin:1px -9px 0 0}
+.identity-row .menu-button{width:36px;height:36px;border-radius:50%;background:transparent;border:0;box-shadow:none}
+.identity-row .menu-button:hover,.identity-row .menu-button[aria-expanded=true]{background:color-mix(in srgb,var(--tint,var(--accent-soft)) 26%,var(--accent-soft))}
+.identity-row .menu-button svg{fill:var(--ink);width:18px;height:18px}
 .identity-row .action-menu{top:calc(100% + 6px);bottom:auto}
 .identity-tags{display:flex;flex-wrap:wrap;gap:4px 0;margin:12px 0 0}
 #style-dialog .identity-tags .keyword{background:none;border:0;padding:0;border-radius:0;font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);box-shadow:none}
@@ -571,7 +572,7 @@ h1 em{display:block}
 @media(min-width:900px){
   .style-info{position:relative}
   .identity-row .menu-wrap{position:absolute;top:16px;right:52px;margin:0}
-  .identity-row .menu-button{width:28px;height:28px;background:var(--veil);border:1px solid var(--veil-line);color:var(--veil-ink)}
+  .identity-row .menu-button{width:28px;height:28px;border-radius:5px;background:var(--veil);border:1px solid var(--veil-line);color:var(--veil-ink)}
   .identity-row .menu-button:hover,.identity-row .menu-button[aria-expanded=true]{background:var(--veil-strong)}
   .identity-row .menu-button svg{fill:var(--veil-ink);width:15px;height:15px}
 }
@@ -663,6 +664,8 @@ dialog{border-radius:8px}
 /* Palette: the selected image's main colors as tiny blocks, most prominent first. Each copies its hex code. */
 .image-palette{display:flex;gap:4px;margin:2px 0 14px}
 .image-palette[hidden]{display:none}
+.color-code{white-space:nowrap}
+.color-code i{display:inline-block;width:.8em;height:.8em;margin:0 .3em 0 .1em;border-radius:2px;vertical-align:-.05em;box-shadow:inset 0 0 0 1px #1c1f1d26}
 .swatch{width:16px;height:16px;min-height:0;padding:0;border:0;border-radius:3px;box-shadow:inset 0 0 0 1px #1c1f1d1a;transition:transform .15s ease}
 .swatch:hover{transform:translateY(-2px)}
 /* The palette line closes each prompt as its own short paragraph. */
@@ -672,4 +675,109 @@ dialog{border-radius:8px}
 @media(min-width:900px){
   .style-info>.image-panel{min-height:auto}
   .style-info .image-prompts{contain:size;min-height:120px}
+}
+/* Test generations: a row under the "Same style, new subject" prompt (button, progress or a strip of saved tests),
+   and a dialog per test with the original, the attempts and the reasoning. */
+.generate-row{display:grid;gap:12px;margin-top:6px;flex:none}
+.generate-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 16px}
+.generate-bar .field-hint{margin:0}
+.test-button{display:inline-flex;align-items:center;gap:6px;min-height:32px;color:var(--ink);font-size:13px;white-space:nowrap}
+.test-button .icon{width:16px;height:16px}
+.test-button:disabled{opacity:1;color:var(--muted);text-decoration:none}
+.generate-progress{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:10px;font-size:12px;line-height:1.5;color:var(--ink)}
+.generate-progress.failed{color:var(--danger)}
+.generate-thought{flex:1 1 100%;color:var(--muted);font-size:12px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.step-dots{display:inline-flex;gap:5px;margin-left:auto}
+.step-dots[hidden]{display:none}
+.step-dots i{width:6px;height:6px;border-radius:50%;background:var(--line)}
+.step-dots i.done{background:var(--ink)}
+.step-dots i.current{background:var(--ink);animation:pulse 1.2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.step-dots i.current{animation:none}}
+.tests{display:grid;gap:8px}
+.tests-label{margin:0;font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.generations{display:flex;gap:8px;flex-wrap:wrap}
+.generations:empty{display:none}
+.generation-chip{position:relative;width:44px;height:44px;padding:0;border:0;border-radius:4px;overflow:hidden;background:#22332b0d;cursor:pointer}
+.generation-chip img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .6s cubic-bezier(.16,1,.3,1)}
+.generation-chip:hover img{transform:scale(1.06)}
+.generation-chip span{position:absolute;left:3px;bottom:3px;padding:2px 4px;border-radius:3px;background:#0b100ebf;color:#f3f1ea;font:var(--caption);letter-spacing:.04em;font-variant-numeric:tabular-nums}
+#generation-dialog{width:min(980px,calc(100% - 32px))}
+#generation-dialog h2{font-family:var(--display);font-weight:400;font-size:28px;letter-spacing:0;color:var(--ink)}
+#generation-dialog .form-intro{margin:-10px 0 20px;max-width:640px}
+/* Attempt tabs: the prompt tabs' underline style, with the match % beside each label. */
+.attempt-tabs{display:flex;align-items:flex-end;gap:22px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow-x:auto;scrollbar-width:none}
+.attempt-tabs::-webkit-scrollbar{display:none}
+.attempt-tabs [role=tab]{display:inline-flex;align-items:baseline;gap:7px;flex:none;border:0;background:none;padding:6px 0 10px;font-size:13px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.attempt-tabs [role=tab]:hover{color:var(--ink)}
+.attempt-tabs [role=tab][aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink);font-weight:500}
+.attempt-tabs strong{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.attempt-tabs strong.match-low{color:var(--muted);font-weight:500}
+.attempt-tabs em{font:var(--caption);font-style:normal;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.attempt-tabs .attempt-pending{align-items:center}
+.attempt-pending i,.live-now i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ink);animation:pulse 1.2s ease-in-out infinite}
+/* The attempt in progress: change and refined prompt on the left, Codex's reasoning lines on the right, newest last. */
+.live-attempt .generation-notes{margin-top:0}
+.live-attempt .muted{color:var(--muted)}
+.live-prompt{max-height:12.5em;overflow:auto}
+.live-log{list-style:none;padding:0!important;margin:0;display:grid;gap:6px}
+.live-log li{position:relative;padding-left:14px;color:var(--muted)}
+.live-log li::before{content:"";position:absolute;left:0;top:.7em;width:5px;height:1px;background:currentColor}
+.live-log li:last-child{color:var(--ink)}
+.live-log .live-now{display:flex;align-items:center;gap:8px}
+.live-log .live-now::before{display:none}
+.live-log .live-now{padding-left:0}
+@media (prefers-reduced-motion:reduce){.attempt-pending i,.live-now i{animation:none}}
+.generation-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.attempt{margin:0;min-width:0}
+.attempt-image{display:block;width:100%;padding:0;border:0;background:#22332b0d;border-radius:6px;overflow:hidden;cursor:zoom-in}
+.attempt-image img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain}
+.attempt figcaption{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin-top:8px;font-size:12px;color:var(--muted)}
+.attempt figcaption strong{font-size:15px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.attempt figcaption strong.match-low{color:var(--muted)}
+#attempt-panel>.error{margin:14px 0 0}
+.generation-notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px 32px;margin-top:22px;font-size:13px;line-height:1.6}
+.generation-notes section{border-top:1px solid var(--line);padding-top:14px;min-width:0}
+.generation-notes h3{margin:0 0 8px;font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.generation-notes h3:not(:first-child){margin-top:16px}
+.generation-notes p{margin:0 0 10px}
+.generation-notes ul{margin:0 0 10px;padding-left:18px}
+.generation-notes li+li{margin-top:4px}
+.generation-notes summary{cursor:pointer;color:var(--muted);font-size:12px;width:max-content}
+.generation-notes summary:hover{color:var(--ink)}
+.generation-notes details p{margin:8px 0 0}
+.trait-scores{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 18px;margin:0 0 14px}
+.trait-scores div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding-bottom:3px}
+.trait-scores dt{color:var(--muted)}
+.trait-scores dd{margin:0;font-variant-numeric:tabular-nums;display:flex;gap:6px;align-items:baseline}
+.trait-scores dd span{font-size:11px;color:var(--muted)}
+.trait-scores dd span.up{color:var(--ink);font-weight:600}
+.generation-prompt{color:var(--muted);white-space:pre-wrap;font-size:12px}
+/* Dialog actions: icon + label text buttons on one 32px line; the one main action (Try again) is a compact primary. */
+.dialog-action{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0;font-size:13px;color:var(--ink);white-space:nowrap}
+.dialog-action .icon{width:16px;height:16px;flex:none}
+.attempt-actions{display:flex;align-items:center;flex-wrap:wrap;gap:4px 22px;margin-top:12px}
+.generation-applied{color:var(--muted)}
+.danger-action{color:var(--danger)}
+.danger-action.armed{font-weight:600}
+.generation-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 20px;margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}
+.retry-box{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px 14px;margin-left:auto;min-width:0}
+.retry-status{font-size:12px;line-height:1.5;color:var(--muted)}
+.retry-status:empty{display:none}
+.retry-status.failed{color:var(--danger)}
+.retry-box .step-dots{margin:0}
+.retry-button{min-height:36px;padding:8px 16px;gap:8px}
+.retry-button .icon{width:16px;height:16px}
+@media(min-width:900px){
+  .style-info .image-prompts:has(#generate-row:not([hidden])){min-height:190px}
+  .style-info .image-prompts:has(#generate-row:not([hidden]) :is(#tests,#generate-progress):not([hidden])){min-height:240px}
+  .style-info .image-prompts:has(#generate-row:not([hidden]) #tests:not([hidden])):has(#generate-progress:not([hidden])){min-height:280px}
+}
+@media(max-width:700px){
+  .generation-compare{gap:10px}
+  #generation-dialog h2{font-size:24px}
+  .attempt-tabs{gap:18px}
+  .generation-actions{flex-direction:column-reverse;align-items:stretch}
+  .retry-box{justify-content:space-between;margin-left:0}
+  .retry-button{flex:1 1 100%}
+  .danger-action{align-self:flex-start}
 }
