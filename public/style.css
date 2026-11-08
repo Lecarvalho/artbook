@@ -739,6 +739,7 @@ dialog{border-radius:8px}
 .live-log .live-now{display:flex;align-items:center;gap:8px}
 .live-log .live-now::before{display:none}
 .live-log .live-now{padding-left:0}
+.live-now .step-dots{margin-left:0}
 @media (prefers-reduced-motion:reduce){.attempt-pending i,.live-now i{animation:none}}
 .generation-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .attempt{margin:0;min-width:0}

@@ -997,10 +997,11 @@ function generateFromPrompt() {
 const STEP_ORDER = ['generate-1', 'judge-1', 'recalibrate', 'generate-2', 'judge-2'];
 const RETRY_ORDER = ['retry-recalibrate', 'generate-retry', 'judge-retry'];
 // Fills a .step-dots element for the given step: one dot per step of that kind of run.
+const dotsFor = (order, at) => order.map((_, n) => `<i class="${n < at ? 'done' : n === at ? 'current' : ''}"></i>`).join('');
 function stepDots(box, state, retry) {
   const order = retry ? RETRY_ORDER : STEP_ORDER, at = order.indexOf(state);
   box.hidden = !state;
-  box.innerHTML = order.map((_, n) => `<i class="${n < at ? 'done' : n === at ? 'current' : ''}"></i>`).join('');
+  box.innerHTML = dotsFor(order, order.indexOf(state));
 }
 function markGenerating() {
   const button = $('#generate-style'); if (!button) return;
@@ -1118,9 +1119,19 @@ function liveAttempt(step) {
       </section>
       <section>
         <h3>Studio notes</h3>
-        <ul class="live-log">${notes}<li class="live-now">${escape(now)}<i></i></li></ul>
+        <ul class="live-log">${notes}<li class="live-now">${escape(now)}${RETRY_ORDER.includes(step) ? `<span class="step-dots" aria-hidden="true">${dotsFor(RETRY_ORDER, RETRY_ORDER.indexOf(step))}</span>` : '<i></i>'}</li></ul>
       </section>
     </div>`;
+}
+// Polling rebuilds the live attempt only when its content changed, and keeps the scroll of its prompt and notes,
+// so reading the reworked prompt is not thrown back to the top every second.
+function updateLiveAttempt(box, step) {
+  const html = liveAttempt(step);
+  if (box.dataset.source === html) return;
+  const kept = ['.live-prompt', '.live-log'].map(selector => [selector, box.querySelector(selector)?.scrollTop || 0]);
+  box.innerHTML = html; box.dataset.source = html;
+  box.querySelectorAll('.generation-prompt').forEach(colorCodes);
+  for (const [selector, top] of kept) { const el = box.querySelector(selector); if (el) el.scrollTop = top; }
 }
 // Updates only the dialog's progress (polled while a retry runs), leaving open disclosures and scroll alone.
 function renderRetryStatus() {
@@ -1130,7 +1141,7 @@ function renderRetryStatus() {
   // The live tab closes itself when the run ends (the finished attempt then opens in its own tab).
   if (!running && openAttempt === 'live') { openAttempt = -1; return renderGenerationDialog(); }
   if (running && openAttempt === 'live' && !$('#live-attempt')) return renderGenerationDialog();
-  if ($('#live-attempt')) { $('#live-attempt').innerHTML = liveAttempt(running); $('#live-attempt').querySelectorAll('.generation-prompt').forEach(colorCodes); }
+  if ($('#live-attempt')) updateLiveAttempt($('#live-attempt'), running);
   const otherJob = !running && generating.has(selectedImage.id);
   const full = g.attempts.length >= MAX_TEST_ATTEMPTS;
   const failure = !running ? retryErrors.get(g.id) : null;
@@ -1139,9 +1150,11 @@ function renderRetryStatus() {
   $('#retry-label').textContent = running === 'queued' ? 'Queued' : running ? 'Trying again…' : from === g.attempts.length - 1 ? 'Try again' : `Try again from attempt ${from + 1}`;
   button.title = full ? `A test keeps at most ${MAX_TEST_ATTEMPTS} attempts. Start a new test from the prompt tab.` : 'Refines the newest prompt, generates once more and compares. Takes a few minutes and uses your Codex allowance.';
   const status = $('#retry-status');
-  status.textContent = running ? GENERATE_STEPS[running] || 'Working…' : failure || (full ? `${MAX_TEST_ATTEMPTS} attempts, the most a test keeps` : otherJob ? 'Another test is running for this image' : '');
+  // While the live tab is open its studio notes already show the current step and its progress dots; don't repeat them beside the button.
+  const liveOpen = !!$('#live-attempt');
+  status.textContent = running ? (liveOpen ? '' : GENERATE_STEPS[running] || 'Working…') : failure || (full ? `${MAX_TEST_ATTEMPTS} attempts, the most a test keeps` : otherJob ? 'Another test is running for this image' : '');
   status.classList.toggle('failed', !!failure);
-  stepDots($('#retry-dots'), running && running !== 'queued' && running !== 'running' ? running : null, true);
+  stepDots($('#retry-dots'), running && !liveOpen && running !== 'queued' && running !== 'running' ? running : null, true);
   $('#attempt-tab-live').hidden = !running;
   $('#delete-generation').disabled = !!running;
 }
