@@ -330,7 +330,8 @@ addEventListener('resize', () => { if ($('#lightbox').open) fitLightbox(); });
 // Fill the empty space beside each image with its own edge colors, so the slide reads as one continuous picture.
 // Pillarboxed images use their left and right edge colors; letterboxed ones their top and bottom.
 const edgeFills = new Map();
-function edgeFill(img) {
+// An image's edge colors (in bands along each side), its tint and palette, computed once per image address.
+function edgeColors(img) {
   const key = img.currentSrc || img.src;
   if (!edgeFills.has(key)) {
     const size = 48, canvas = document.createElement('canvas');
@@ -376,17 +377,30 @@ function edgeFill(img) {
     const tint = `rgb(${Math.round(r / weight)} ${Math.round(g / weight)} ${Math.round(b / weight)})`;
     edgeFills.set(key, { left: along('left'), right: along('right'), top: along('top'), bottom: along('bottom'), tint, palette: paletteOf(data) });
   }
+  return edgeFills.get(key);
+}
+// The empty bands beside a contained image, painted with its own edge colors: two half-size layers, left/right halves
+// for pillarboxed images, top/bottom halves for letterboxed ones.
+function edgeBackground(fill, pillarbox) {
+  const ramp = (colors, direction) => `linear-gradient(${direction}, ${colors.map((c, k) => `${c} ${Math.round((k + .5) / colors.length * 100)}%`).join(', ')})`;
+  return pillarbox
+    ? `${ramp(fill.left, '180deg')} left / 50% 100% no-repeat, ${ramp(fill.right, '180deg')} right / 50% 100% no-repeat`
+    : `${ramp(fill.top, '90deg')} top / 100% 50% no-repeat, ${ramp(fill.bottom, '90deg')} bottom / 100% 50% no-repeat`;
+}
+// The same fill for a test's picture frames (original, attempt). Frames of a replay or a live drawing (blob images)
+// keep the fill they have instead of sampling every frame.
+function fillFrame(img) {
+  if (!img.naturalWidth || (img.currentSrc || img.src).startsWith('blob:')) return;
+  try { img.parentElement.style.background = edgeBackground(edgeColors(img), img.naturalWidth / img.naturalHeight < img.clientWidth / img.clientHeight); } catch {}
+}
+function edgeFill(img) {
+  const fill = edgeColors(img);
   const slide = img.closest('.hero-slide');
-  const fill = edgeFills.get(key);
   const pillarbox = img.naturalWidth / img.naturalHeight < slide.clientWidth / slide.clientHeight;
   // Near-matching shapes: fill the frame (cropping at most 14% on the other axis) instead of leaving thin bands.
   const ratio = (img.naturalWidth / img.naturalHeight) / (slide.clientWidth / slide.clientHeight);
   slide.classList.toggle('bleed', 1 - (pillarbox ? ratio : 1 / ratio) < 0.14);
-  const ramp = (colors, direction) => `linear-gradient(${direction}, ${colors.map((c, k) => `${c} ${Math.round((k + .5) / colors.length * 100)}%`).join(', ')})`;
-  // Two half-size layers: left/right halves for pillarboxed images, top/bottom halves for letterboxed ones.
-  slide.style.background = pillarbox
-    ? `${ramp(fill.left, '180deg')} left / 50% 100% no-repeat, ${ramp(fill.right, '180deg')} right / 50% 100% no-repeat`
-    : `${ramp(fill.top, '90deg')} top / 100% 50% no-repeat, ${ramp(fill.bottom, '90deg')} bottom / 100% 50% no-repeat`;
+  slide.style.background = edgeBackground(fill, pillarbox);
 }
 // Palette: up to ten clearly different colors, most prominent first. Pixels are grouped into small color cubes;
 // cubes are ranked by coverage with a boost for saturation, so a small vivid accent is not lost to large neutral
@@ -1240,7 +1254,10 @@ function renderGenerationDialog() {
   renderReview();
   $('#generation-content').querySelectorAll('.generation-prompt').forEach(colorCodes);
   placeNoteBoxes();
-  $('#generation-content').querySelectorAll('.attempt-image img').forEach(img => { if (img.complete) placeNoteLayer(img); img.addEventListener('load', () => placeNoteLayer(img)); });
+  $('#generation-content').querySelectorAll('.attempt-image img').forEach(img => {
+    const ready = () => { placeNoteLayer(img); fillFrame(img); };
+    if (img.complete) ready(); img.addEventListener('load', ready);
+  });
 }
 // The loop has stalled when the last attempts score within a few points of each other (information only).
 const PLATEAU_RUN = 3, PLATEAU_POINTS = 3;
@@ -1504,6 +1521,7 @@ function updateLiveAttempt(box, step) {
   const kept = ['.live-prompt', '.live-log'].map(selector => [selector, box.querySelector(selector)?.scrollTop || 0]);
   box.innerHTML = html; box.dataset.source = html;
   box.querySelectorAll('.generation-prompt').forEach(colorCodes);
+  box.querySelectorAll('.attempt-image img').forEach(img => { if (img.complete) fillFrame(img); else img.addEventListener('load', () => fillFrame(img), { once: true }); });
   for (const [selector, top] of kept) { const el = box.querySelector(selector); if (el) el.scrollTop = top; }
 }
 // A drawing in progress: its newest stage as soon as it exists, the drawer's notes, then the critique's reasoning.
