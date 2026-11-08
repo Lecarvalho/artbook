@@ -565,14 +565,30 @@ async function vectorAttempt({ dataDir, job, written, draw, render, judge, origi
     const note = typeof out?.note === 'string' ? out.note.trim().slice(0, 400) : '';
     const redrawn = layer ? [layer] : out.layers.map(l => l.name).filter(n => LAYER_IDS.includes(n));
     stages.push({ filename, render: renderName, note, layers: redrawn });
+    if (revise) Object.assign(revise, { note, redrawn });
     onLive(svg, layer);
     onStage({ filename, render: renderName, note, stage });
     previous = { svg, png };
   }
+  // A revision keeps a process too: the revised drawing rebuilt layer by layer, redrawn layers marked as such.
+  if (revise) {
+    const redrawn = stages[0].layers, present = LAYER_IDS.filter(id => state.layers[id]);
+    const snapshots = [];
+    for (const [n, id] of present.entries()) {
+      const note = redrawn.includes(id) ? stages[0].note : `Kept from attempt ${revise.from + 1}.`;
+      if (n === present.length - 1) { snapshots.push({ ...stages[0], note, layers: [id] }); break; }
+      const svg = sanitizeSvg(composeDrawing({ defs: state.defs, layers: Object.fromEntries(present.slice(0, n + 1).map(l => [l, state.layers[l]])), sketchOpacity: 1 }));
+      const file = `${randomUUID()}.svg`, path = join(folder, file), renderName = file.replace(/\.svg$/, '.png');
+      await writeFile(path, svg); written.push(path);
+      await render(path, join(folder, renderName), svgSize(svg), job); written.push(join(folder, renderName));
+      snapshots.push({ filename: file, render: renderName, note, layers: [id] });
+    }
+    stages.splice(0, stages.length, ...snapshots);
+  }
   const filename = stages.at(-1).render, path = join(folder, filename);
   onStep(revise ? 'judge-revise' : 'judge-vector');
-  const last = stages.at(-1);
-  const result = { filename, prompt, change: revise ? `${last.note || 'Revised the drawing.'}${last.layers.length ? ` (redrew ${last.layers.join(', ')})` : ''}` : null, kind: 'vector', drawer, svg: last.filename, stages: revise ? [] : stages,
+  const last = revise ? { note: revise.note, layers: revise.redrawn } : stages.at(-1);
+  const result = { filename, prompt, change: revise ? `${last.note || 'Revised the drawing.'}${last.layers.length ? ` (redrew ${last.layers.join(', ')})` : ''}` : null, kind: 'vector', drawer, svg: stages.at(-1).filename, stages,
     ...validateJudgement(await judge(originalPath, path, job, { onThought })) };
   onAttempt(result);
   return result;
@@ -588,7 +604,7 @@ function runVectorRetry({ originalPath, generation, from, dataDir, ...codex }) {
   const base = generation.attempts[from], folder = join(dataDir, 'images', 'generated');
   return generationRun(dataDir, codex, originalPath, async ({ vector }) => {
     const svg = await readFile(join(folder, base.svg), 'utf8');
-    return { ...(await vector({ prompt: base.prompt, drawer: generation.drawer || base.drawer, revise: { svg, png: join(folder, base.filename), critique: base } })), basedOn: from };
+    return { ...(await vector({ prompt: base.prompt, drawer: generation.drawer || base.drawer, revise: { svg, png: join(folder, base.filename), critique: base, from } })), basedOn: from };
   });
 }
 

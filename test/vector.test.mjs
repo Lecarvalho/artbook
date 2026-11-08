@@ -138,11 +138,16 @@ test('a vector test draws four stacked layers, keeps every stage, serves drawing
   assert.deepEqual(draws.at(-1).critique, ['contours too even']);
   const second = generation.attempts[1];
   assert.deepEqual([second.kind, second.basedOn, second.similarity, second.change], ['vector', 0, 68, 'heavier tapering contours (redrew line)']);
+  // The revision keeps a process: the revised drawing layer by layer, with the redrawn layer marked.
+  assert.deepEqual(second.stages.map(st => [st.layers[0], st.note]), [['sketch', 'Kept from attempt 1.'], ['color', 'Kept from attempt 1.'], ['line', 'heavier tapering contours'], ['finish', 'Kept from attempt 1.']]);
+  assert.equal(second.svg, second.stages[3].filename);
+  assert.equal(second.filename, second.stages[3].render);
+  assert.doesNotMatch(await readFile(join(dir, 'images', 'generated', second.stages[1].filename), 'utf8'), /layer-line/);
   const revised = parseDrawing(await readFile(join(dir, 'images', 'generated', second.svg), 'utf8'));
   assert.equal(revised.layers.line, '<path id="fixed"/>');
   assert.match(revised.layers.color, /color-1/);
   assert.equal(revised.sketchOpacity, 0);
-  assert.equal((await files()).length, 10);
+  assert.equal((await files()).length, 16, 'the revision and three layer snapshots, each with its render');
 
   // Deleting the test removes every drawing and render it owns.
   assert.equal((await fetch(`${app.base}/api/images/img/generations/${generation.id}`, { method: 'DELETE', headers: { 'X-Artbook-Request': '1' } })).status, 200);

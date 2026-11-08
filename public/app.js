@@ -1149,7 +1149,7 @@ function processStrip(a) {
   const last = a.stages.length - 1;
   return `<section class="process" aria-labelledby="process-title">
       <div class="process-head"><h3 id="process-title">Process</h3>${a.svg ? `<button class="text-button dialog-action" id="play-drawing">${icon('play')}<span>Play</span></button>` : ''}</div>
-      <div class="process-strip" role="group" aria-label="Drawing stages">${a.stages.map((st, i) => `<button class="process-step" data-stage="${i}" aria-pressed="${i === last}"><span class="process-thumb"><img src="/images/generated/${escape(st.render || st.filename)}" alt="" loading="lazy"></span><span>${i + 1} · ${STAGE_LABELS[i] || `Stage ${i + 1}`}</span></button>`).join('')}</div>
+      <div class="process-strip" role="group" aria-label="Drawing stages">${a.stages.map((st, i) => `<button class="process-step" data-stage="${i}" aria-pressed="${i === last}"><span class="process-thumb"><img src="/images/generated/${escape(st.render || st.filename)}" alt="" loading="lazy"></span><span>${i + 1} · ${STAGE_LABELS[LAYER_ORDER.indexOf(st.layers?.[0])] || STAGE_LABELS[i] || `Stage ${i + 1}`}</span></button>`).join('')}</div>
       <p class="process-note" id="process-note">${escape(a.stages[last].note || '')}</p>
     </section>`;
 }
