@@ -472,7 +472,9 @@ function drawHistory(history, critique) {
   return `\nEvery attempt of this test so far, with its match and the change that led to it:\n${lines.join('\n')}
 Keep changes that raised the match; undo or rethink those that lowered it, even if they are in layers the critique does not name (redraw that layer).${worse ? ` The drawing below scores lower than attempt ${best + 1} (${history[best].similarity}%): remove what this line of revisions added that made it worse.` : ''}`;
 }
-export function drawPrompt({ brief, stage, previous, critique, renderNote, notes = null, history = null }) {
+// The composition plan is written with the sketch (stage 1) and handed to every later layer and revision.
+const PLAN_LABELS = ['Focal point', 'Values', 'Light', 'Colors', 'Layers'];
+export function drawPrompt({ brief, stage, previous, critique, renderNote, notes = null, history = null, plan = '' }) {
   const layer = stage ? LAYERS[stage - 1] : null;
   const edit = !layer && notes?.length > 0;
   const ownerNotes = edit ? `\nThe owner of the original also left their own notes. They come first: fix every note, and where a note and the reviewer disagree, follow the note.
@@ -484,13 +486,15 @@ ${(critique?.differences || []).map(d => `- ${d}`).join('\n') || '- (no details 
 Trait scores out of 100: ${STYLE_TRAITS.map(t => `${t} ${critique?.scores?.[t]}`).join(', ')}.${critique?.strengths?.length ? `\nWhat already matches, keep it:\n${critique.strengths.map(s => `- ${s}`).join('\n')}` : ''}${critique?.defects?.length ? `\nThe reviewer also saw these defects (not style; fix them where you can):\n${critique.defects.map(d => `- ${d.note} (canvas x ${Math.round(d.box.x * CANVAS.width)}-${Math.round((d.box.x + d.box.w) * CANVAS.width)}, y ${Math.round(d.box.y * CANVAS.height)}-${Math.round((d.box.y + d.box.h) * CANVAS.height)})`).join('\n')}` : ''}
 ${edit ? `${ownerNotes}
 Fix the notes by editing only the shapes they concern: the drawing below numbers every top-level shape of each layer (comments like "line #3"). Replace or add shapes; everything you do not list stays exactly as it is. Then fix the reviewer's differences the same way where you can do it without breaking what works.` : 'Fix those differences by redrawing only the layers they concern. Keep the layers that already work by leaving them out of your answer.'}${drawHistory(history, critique)}`;
-  const look = previous ? `\nThe drawing so far is below as SVG code${renderNote ? `, and ${renderNote}` : ''}. Look at it before you draw.` : '\nThis is the first layer: start on an empty canvas.';
+  const look = previous ? `\nThe drawing so far is below as SVG code${renderNote ? `, and ${renderNote}` : ''}. Look at it before you draw.` : '\nThis is the first layer: start on an empty canvas. Plan the whole picture first (the plan field), then draw the sketch that sets it up.';
+  const planned = plan && stage !== 1 ? `\nComposition plan written at the sketch stage; ${layer ? 'follow it, unless the drawing so far shows a clearly better choice' : 'keep it, unless the critique or a note asks to change the composition'}:\n"""\n${plan}\n"""` : '';
   const fields = edit ? `- edits: each { layer, replace, content }: replace = the numbers of that layer's shapes to remove (as numbered in the drawing below), content = the new SVG elements put where the first removed shape was, or on top of the layer when replace is empty. Use an empty content to only remove shapes. Several edits per layer are fine; numbers always refer to the drawing as shown.
 - defs: any new filters, gradients, patterns or symbols, or an empty string. Start every new id with "<layer name>-fix-" so it never clashes with existing ids.
 - sketchOpacity: the opacity of the sketch layer in the finished piece (keep the current value unless a note concerns it).`
     : layer ? `- content: the SVG elements of the "${layer.id}" layer only, without an <svg> or outer group wrapper (the app wraps it in <g id="layer-${layer.id}">). Do not repeat earlier layers; paint over them where needed.
 - defs: any new filters, gradients, patterns or symbols this layer uses, as SVG elements, or an empty string. Start every id with "${layer.id}-" so ids never clash with other layers.
-- sketchOpacity: ${stage === LAYERS.length ? 'the opacity of the sketch layer in the finished piece: lower it, or 0, when construction lines do not belong to the style; 1 when they do.' : '1.'}`
+- sketchOpacity: ${stage === LAYERS.length ? 'the opacity of the sketch layer in the finished piece: lower it, or 0, when construction lines do not belong to the style; 1 when they do.' : '1.'}${stage === 1 ? `
+- plan: the composition plan for the whole picture, written before you draw, 60-120 words, as five short labeled parts: ${PLAN_LABELS.map(l => `"${l}:"`).join(', ')}. Focal point = what draws the eye and where it sits in the frame; Values = where the darkest darks and lightest lights go; Light = its direction and quality; Colors = the main colors, from the brief's palette when it has one; Layers = what color, line and finish will each add. Plain text, no lists.` : ''}`
     : `- layers: the layers you redraw, each { name, content } where content is the complete new content of that layer (same rules as before: elements only, no wrapper). Leave out layers that stay as they are.
 - defs: any new filters, gradients, patterns or symbols, or an empty string. Start every new id with "<layer name>-fix-" so it never clashes with existing ids.
 - sketchOpacity: the opacity of the sketch layer in the finished piece (keep the current value unless the critique concerns it).`;
@@ -498,7 +502,7 @@ Fix the notes by editing only the shapes they concern: the drawing below numbers
 Brief (the only description of the target; match its visual style closely; the style matters more than the subject):
 """
 ${brief}
-"""${look}
+"""${planned}${look}
 ${DRAW_RULES}
 Return only the requested JSON:
 ${fields}
@@ -544,6 +548,7 @@ async function claudeStatus() {
   } catch (error) { return { connected: false, message: error.message }; }
 }
 const LAYER_SCHEMA = { type: 'object', additionalProperties: false, properties: { content: { type: 'string' }, defs: { type: 'string' }, sketchOpacity: { type: 'number' }, note: { type: 'string' } }, required: ['content', 'defs', 'sketchOpacity', 'note'] };
+const FIRST_LAYER_SCHEMA = { ...LAYER_SCHEMA, properties: { plan: { type: 'string' }, ...LAYER_SCHEMA.properties }, required: ['plan', ...LAYER_SCHEMA.required] };
 const REVISE_SCHEMA = { type: 'object', additionalProperties: false, properties: {
   layers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { name: { type: 'string', enum: LAYER_IDS }, content: { type: 'string' } }, required: ['name', 'content'] } },
   defs: { type: 'string' }, sketchOpacity: { type: 'number' }, note: { type: 'string' } }, required: ['layers', 'defs', 'sketchOpacity', 'note'] };
@@ -591,9 +596,9 @@ async function drawWithCodex(prompt, schema, job, previousPng, onThought) {
 // draw({ brief, stage, previous: { svg, png } | null, critique, drawer, job, onThought, onPartial }) ->
 //   a layer { content, defs, sketchOpacity, note } (stage 1-4) or a revision { layers: [{ name, content }], defs, sketchOpacity, note }.
 // With the user's notes a revision edits numbered shapes ({ edits, defs, sketchOpacity, note }) instead of whole layers.
-async function drawVector({ brief, stage, previous, critique, notes, history, drawer, job, onThought, onPartial }) {
+async function drawVector({ brief, stage, previous, critique, notes, history, plan, drawer, job, onThought, onPartial }) {
   const renderNote = previous ? (drawer === 'claude' ? 'its render is the file previous.png in the current folder (read it with the Read tool)' : 'its render is the attached image') : '';
-  const prompt = drawPrompt({ brief, stage, previous, critique, renderNote, notes, history: stage ? null : history }), schema = stage ? LAYER_SCHEMA : notes?.length ? EDIT_SCHEMA : REVISE_SCHEMA;
+  const prompt = drawPrompt({ brief, stage, previous, critique, renderNote, notes, history: stage ? null : history, plan }), schema = stage === 1 ? FIRST_LAYER_SCHEMA : stage ? LAYER_SCHEMA : notes?.length ? EDIT_SCHEMA : REVISE_SCHEMA;
   return drawer === 'claude' ? drawWithClaude(prompt, schema, job, previous?.png, onThought, onPartial) : drawWithCodex(prompt, schema, job, previous?.png, onThought);
 }
 
@@ -664,6 +669,7 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
   }
   const stages = [];
   let previous = revise ? { svg: revise.svg, png: revise.png } : null;
+  let plan = revise?.critique?.plan || ''; // a revision keeps the plan of the drawing it reworks
   for (const stage of revise ? [null] : LAYERS.map((_, n) => n + 1)) {
     const layer = stage ? LAYERS[stage - 1].id : null;
     onStep(stage ? `draw-${stage}` : 'draw-revise');
@@ -675,7 +681,7 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
       try { onLive(sanitizeSvg(composeDrawing({ ...state, defs: [...state.defs, completeElements(partialJsonString(json, 'defs'))], layers: { ...state.layers, [layer]: completeElements(partialJsonString(json, 'content')) } })), layer); } catch {}
     } : null;
     // A layer that comes back without content is asked for once more before the test fails.
-    const ask = () => draw({ brief, stage, previous, critique: revise?.critique || null, notes: layer ? null : notes, history: revise?.history || null, drawer, job, onThought, onPartial });
+    const ask = () => draw({ brief, stage, previous, critique: revise?.critique || null, notes: layer ? null : notes, history: revise?.history || null, plan, drawer, job, onThought, onPartial });
     let out = await ask(), edited = null;
     const empty = o => {
       if (layer) return !layerContent(o?.content);
@@ -683,6 +689,7 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
       return !(Array.isArray(o?.layers) && o.layers.some(l => LAYER_IDS.includes(l?.name) && layerContent(l?.content)));
     };
     if (empty(out)) { out = await ask(); if (empty(out)) throw new Error('The drawing came back empty. Try again.'); }
+    if (stage === 1 && typeof out.plan === 'string') plan = out.plan.replace(/\s+/g, ' ').trim().slice(0, 900);
     if (layer) state.layers[layer] = layerContent(out.content);
     else if (notes) state.layers = edited.layers;
     else for (const l of out.layers) if (LAYER_IDS.includes(l?.name) && layerContent(l.content)) state.layers[l.name] = layerContent(l.content);
@@ -699,7 +706,7 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
     stages.push({ filename, render: renderName, note, layers: redrawn });
     if (revise) Object.assign(revise, { note, redrawn });
     onLive(svg, layer);
-    onStage({ filename, render: renderName, note, stage });
+    onStage({ filename, render: renderName, note, stage, ...(stage === 1 && plan ? { plan } : {}) });
     previous = { svg, png };
   }
   // A revision keeps a process too: the revised drawing rebuilt layer by layer, redrawn layers marked as such.
@@ -720,7 +727,7 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
   const filename = stages.at(-1).render, path = join(folder, filename);
   onStep(revise ? 'judge-revise' : 'judge-vector');
   const last = revise ? { note: revise.note, layers: revise.redrawn } : stages.at(-1);
-  const result = { filename, prompt, change: revise ? `${last.note || 'Revised the drawing.'}${last.layers.length ? ` (${notes ? 'edited' : 'redrew'} ${last.layers.join(', ')})` : ''}` : null, kind: 'vector', drawer, svg: stages.at(-1).filename, stages,
+  const result = { filename, prompt, change: revise ? `${last.note || 'Revised the drawing.'}${last.layers.length ? ` (${notes ? 'edited' : 'redrew'} ${last.layers.join(', ')})` : ''}` : null, kind: 'vector', drawer, svg: stages.at(-1).filename, stages, plan,
     ...validateJudgement(await judge(originalPath, path, job, { onThought })) };
   onAttempt(result);
   return result;
@@ -833,7 +840,7 @@ export async function makeApp({ dataDir = join(root, 'data'), analyze = analyzeI
     onThought: text => { job.log = [...(job.log || []), { step: job.step, text }].slice(-12); },
     onRefined: refined => { job.refined = refined; },
     onAttempt: attempt => { job.judged = [...(job.judged || []), { similarity: attempt.similarity, summary: attempt.summary }]; },
-    onStage: stage => { job.stages = [...(job.stages || []), stage]; },
+    onStage: stage => { job.stages = [...(job.stages || []), stage]; if (stage.plan) job.plan = stage.plan; },
     // The drawing as it grows, served on its own (it can be large); the polled state carries only a version and the layer.
     onLive: (svg, layer) => { job.live = svg; job.liveVersion = (job.liveVersion || 0) + 1; job.liveLayer = layer; },
   });

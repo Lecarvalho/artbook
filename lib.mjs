@@ -172,7 +172,7 @@ export function validateAttempt(attempt) {
   const basedOn = Number.isInteger(attempt.basedOn) && attempt.basedOn >= 0 ? attempt.basedOn : null;
   // A vector attempt keeps its SVG and, for a staged drawing, every stage with the drawer's note; filename is its render.
   const vector = attempt.kind === 'vector' && SVG_FILE.test(attempt.svg || '') ? {
-    kind: 'vector', drawer: DRAWERS.includes(attempt.drawer) ? attempt.drawer : null, svg: attempt.svg,
+    kind: 'vector', drawer: DRAWERS.includes(attempt.drawer) ? attempt.drawer : null, svg: attempt.svg, plan: text(attempt.plan, 900),
     stages: (Array.isArray(attempt.stages) ? attempt.stages : []).filter(st => SVG_FILE.test(st?.filename || '')).slice(0, 6).map(st => ({ filename: st.filename, render: GENERATED_FILE.test(st.render || '') ? st.render : null, note: text(st.note, 400), layers: (Array.isArray(st.layers) ? st.layers : []).filter(l => ['sketch', 'color', 'line', 'finish'].includes(l)) })),
   } : {};
   let notes = [];

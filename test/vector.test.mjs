@@ -217,3 +217,26 @@ test('a drawing revision knows every attempt and when it builds on a weaker one'
   // A first revision has no history to show.
   assert.doesNotMatch(drawPrompt({ brief: 'b', stage: null, previous: null, critique: history[0], history: [history[0]] }), /Every attempt/);
 });
+
+test('the sketch stage writes a composition plan that every later layer and revision gets', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'artbook-plan-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await library(dir);
+  const plan = 'Focal point: the bow, left third. Values: darkest under the hull. Light: low from the right. Colors: rust and slate. Layers: color masses, plank lines, glints.';
+  const asked = [];
+  const app = await serve(t, { dataDir: dir, draw: async args => {
+    asked.push({ stage: args.stage, plan: args.plan, prompt: drawPrompt(args) });
+    if (args.stage) return { ...(args.stage === 1 ? { plan: `  ${plan}\n` } : {}), content: `<rect id="s${args.stage}"/>`, defs: '', sketchOpacity: 1, note: 'n' };
+    return { layers: [{ name: 'line', content: '<path/>' }], defs: '', sketchOpacity: 1, note: 'fixed' };
+  } });
+  let generation = (await (await app.post('/api/generate', { imageId: 'img', prompt: '[a boat] ink', mode: 'vector', drawer: 'codex' })).json()).images[0].generations[0];
+  assert.match(asked[0].prompt, /- plan: the composition plan for the whole picture[^\n]*"Focal point:", "Values:", "Light:", "Colors:", "Layers:"/);
+  assert.equal(asked[0].plan, '');
+  assert.deepEqual(asked.slice(1, 4).map(a => a.plan), [plan, plan, plan]);
+  assert.match(asked[1].prompt, /Composition plan written at the sketch stage; follow it[^\n]*\n"""\nFocal point: the bow/);
+  assert.doesNotMatch(asked[1].prompt, /- plan:/);
+  assert.equal(generation.attempts[0].plan, plan);
+  generation = (await (await app.post(`/api/images/img/generations/${generation.id}/retry`, { from: 0 })).json()).images[0].generations[0];
+  assert.match(asked.at(-1).prompt, /keep it, unless the critique or a note asks to change the composition/);
+  assert.equal(generation.attempts[1].plan, plan);
+});

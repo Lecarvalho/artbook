@@ -861,6 +861,10 @@ dialog{border-radius:8px}
 .defect-tag{font-size:12px;color:var(--muted)}
 .defect-tag.limit{color:var(--danger)}
 .plateau{margin:22px 0 0;padding:10px 14px;border-left:2px solid var(--ink);background:var(--accent-soft);border-radius:0 6px 6px 0;font-size:13px;line-height:1.6;max-width:720px}
+.process-plan{margin:0 0 12px;font-size:13px;line-height:1.6}
+.process-plan summary{cursor:pointer;color:var(--muted);font-size:12px;width:max-content}
+.process-plan summary:hover{color:var(--ink)}
+.process-plan p{margin:8px 0 0;max-width:720px}
 .evidence-single{grid-template-columns:minmax(0,640px)}
 .evidence-note{margin:0 0 18px;font-size:13px;line-height:1.6;color:var(--muted);max-width:640px}
 .evidence-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}

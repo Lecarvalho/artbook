@@ -1434,10 +1434,13 @@ function processStrip(a) {
   const last = a.stages.length - 1;
   return `<section class="process" aria-labelledby="process-title">
       <div class="process-head"><h3 id="process-title">Process</h3>${a.svg ? `<button class="text-button dialog-action" id="play-drawing">${icon('play')}<span>Play</span></button>` : ''}</div>
+      ${a.plan ? `<details class="process-plan"><summary>Composition plan</summary><p>${planText(a.plan)}</p></details>` : ''}
       <div class="process-strip" role="group" aria-label="Drawing stages">${a.stages.map((st, i) => `<button class="process-step" data-stage="${i}" aria-pressed="${i === last}"><span class="process-thumb"><img src="/images/generated/${escape(st.render || st.filename)}" alt="" loading="lazy"></span><span>${i + 1} · ${STAGE_LABELS[LAYER_ORDER.indexOf(st.layers?.[0])] || STAGE_LABELS[i] || `Stage ${i + 1}`}</span></button>`).join('')}</div>
       <p class="process-note" id="process-note">${escape(a.stages[last].note || '')}</p>
     </section>`;
 }
+// The plan's labeled parts each start a line, label in bold.
+const planText = plan => escape(plan).replace(/\s*\b(Focal point|Values|Light|Colors|Layers):/g, (_, label) => `<br><strong>${label}:</strong>`).replace(/^<br>/, '');
 function showStage(button, attempt) {
   const stage = attempt.stages[Number(button.dataset.stage)]; if (!stage) return;
   $('#attempt-art').src = `/images/generated/${stage.render || stage.filename}`;
@@ -1593,7 +1596,7 @@ function liveDrawing(state, step) {
   const order = orderFor(step, true);
   const src = liveArt.url && liveArt.job === state.id ? liveArt.url : latest ? `/images/generated/${escape(latest.render || latest.filename)}` : '';
   return `${liveCompare(state, step, src ? `<img id="live-art" src="${src}" alt="Drawing in progress">` : '')}<div class="generation-notes">
-      <section><h3>Adjustments</h3><p>${latest?.note ? escape(latest.note) : '<span class="muted">Reading the last critique…</span>'}</p></section>
+      <section><h3>Adjustments</h3><p>${latest?.note ? escape(latest.note) : '<span class="muted">Reading the last critique…</span>'}</p>${state.plan ? `<h3>Composition plan</h3><p>${planText(state.plan)}</p>` : ''}</section>
       <section><h3>Studio notes</h3><ul class="live-log">${notes}<li class="live-now">${escape(now)}${order.includes(step) ? `<span class="step-dots" aria-hidden="true">${dotsFor(order, order.indexOf(step))}</span>` : '<i></i>'}</li></ul></section>
     </div>`;
 }
