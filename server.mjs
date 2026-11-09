@@ -459,9 +459,20 @@ export function partialJsonString(json, key) {
 }
 const DRAW_RULES = `Canvas: viewBox 0 0 ${CANVAS.width} ${CANVAS.height}. Layers stack in order: sketch, color, line, finish.
 Write every shape yourself: paths, polylines, basic shapes, groups, symbols and <use>, gradients, opacity, blend modes, and SVG filters (feTurbulence, feDisplacementMap, feColorMatrix, feGaussianBlur, feComposite) for paper grain, wobbly ink, washes and surface texture. Use <use> and patterns for repeated marks so the layer stays compact: aim for at most 150 elements and 100 KB per layer.
-No <image>, <script>, <foreignObject>, links, external resources or fonts; no text unless the brief asks for lettering. Aim for a hand-made result in the brief's medium, never a clean clip-art look.`;
+No <image>, <script>, <foreignObject>, links, external resources or fonts; no text unless the brief asks for lettering. Aim for a hand-made result in the brief's medium, never a clean clip-art look.
+Texture belongs to surfaces: apply grain, brush ridges or relief per object (clipped to its shape, following its form, at modest strength), never as one filter or overlay across the whole canvas, which flattens every form under the same noise. Volume and modelling come from shaped light and shadow (gradients, glazes, highlight and crevice shapes), not from texture.`;
 // The drawer's instructions for one layer (stage = 1-4), or for a revision from the judge's critique (stage = null).
-export function drawPrompt({ brief, stage, previous, critique, renderNote, notes = null }) {
+// history: every attempt of the test, oldest first, so a revision knows which earlier changes raised or lowered the match.
+function drawHistory(history, critique) {
+  if (!(history?.length > 1)) return '';
+  const at = history.indexOf(critique);
+  const lines = history.map((h, n) => `- Attempt ${n + 1}: ${h.similarity}% (${STYLE_TRAITS.map(t => `${t} ${h.scores?.[t]}`).join(', ')})${Number.isInteger(h.basedOn) ? `, revised from attempt ${h.basedOn + 1}` : ', first drawing'}${h.change ? `; change: ${h.change}` : ''}${n === at ? ' (the drawing below)' : ''}`);
+  const best = history.reduce((top, h, n) => (h.similarity > history[top].similarity ? n : top), 0);
+  const worse = at >= 0 && best !== at && history[best].similarity > history[at].similarity;
+  return `\nEvery attempt of this test so far, with its match and the change that led to it:\n${lines.join('\n')}
+Keep changes that raised the match; undo or rethink those that lowered it, even if they are in layers the critique does not name (redraw that layer).${worse ? ` The drawing below scores lower than attempt ${best + 1} (${history[best].similarity}%): remove what this line of revisions added that made it worse.` : ''}`;
+}
+export function drawPrompt({ brief, stage, previous, critique, renderNote, notes = null, history = null }) {
   const layer = stage ? LAYERS[stage - 1] : null;
   const edit = !layer && notes?.length > 0;
   const ownerNotes = edit ? `\nThe owner of the original also left their own notes. They come first: fix every note, and where a note and the reviewer disagree, follow the note.
@@ -472,7 +483,7 @@ ${notes.map(n => `- "${n.text}" ${n.box && n.on === 'generated' ? `(on your draw
 ${(critique?.differences || []).map(d => `- ${d}`).join('\n') || '- (no details given)'}
 Trait scores out of 100: ${STYLE_TRAITS.map(t => `${t} ${critique?.scores?.[t]}`).join(', ')}.${critique?.strengths?.length ? `\nWhat already matches, keep it:\n${critique.strengths.map(s => `- ${s}`).join('\n')}` : ''}${critique?.defects?.length ? `\nThe reviewer also saw these defects (not style; fix them where you can):\n${critique.defects.map(d => `- ${d.note} (canvas x ${Math.round(d.box.x * CANVAS.width)}-${Math.round((d.box.x + d.box.w) * CANVAS.width)}, y ${Math.round(d.box.y * CANVAS.height)}-${Math.round((d.box.y + d.box.h) * CANVAS.height)})`).join('\n')}` : ''}
 ${edit ? `${ownerNotes}
-Fix the notes by editing only the shapes they concern: the drawing below numbers every top-level shape of each layer (comments like "line #3"). Replace or add shapes; everything you do not list stays exactly as it is. Then fix the reviewer's differences the same way where you can do it without breaking what works.` : 'Fix those differences by redrawing only the layers they concern. Keep the layers that already work by leaving them out of your answer.'}`;
+Fix the notes by editing only the shapes they concern: the drawing below numbers every top-level shape of each layer (comments like "line #3"). Replace or add shapes; everything you do not list stays exactly as it is. Then fix the reviewer's differences the same way where you can do it without breaking what works.` : 'Fix those differences by redrawing only the layers they concern. Keep the layers that already work by leaving them out of your answer.'}${drawHistory(history, critique)}`;
   const look = previous ? `\nThe drawing so far is below as SVG code${renderNote ? `, and ${renderNote}` : ''}. Look at it before you draw.` : '\nThis is the first layer: start on an empty canvas.';
   const fields = edit ? `- edits: each { layer, replace, content }: replace = the numbers of that layer's shapes to remove (as numbered in the drawing below), content = the new SVG elements put where the first removed shape was, or on top of the layer when replace is empty. Use an empty content to only remove shapes. Several edits per layer are fine; numbers always refer to the drawing as shown.
 - defs: any new filters, gradients, patterns or symbols, or an empty string. Start every new id with "<layer name>-fix-" so it never clashes with existing ids.
@@ -580,9 +591,9 @@ async function drawWithCodex(prompt, schema, job, previousPng, onThought) {
 // draw({ brief, stage, previous: { svg, png } | null, critique, drawer, job, onThought, onPartial }) ->
 //   a layer { content, defs, sketchOpacity, note } (stage 1-4) or a revision { layers: [{ name, content }], defs, sketchOpacity, note }.
 // With the user's notes a revision edits numbered shapes ({ edits, defs, sketchOpacity, note }) instead of whole layers.
-async function drawVector({ brief, stage, previous, critique, notes, drawer, job, onThought, onPartial }) {
+async function drawVector({ brief, stage, previous, critique, notes, history, drawer, job, onThought, onPartial }) {
   const renderNote = previous ? (drawer === 'claude' ? 'its render is the file previous.png in the current folder (read it with the Read tool)' : 'its render is the attached image') : '';
-  const prompt = drawPrompt({ brief, stage, previous, critique, renderNote, notes }), schema = stage ? LAYER_SCHEMA : notes?.length ? EDIT_SCHEMA : REVISE_SCHEMA;
+  const prompt = drawPrompt({ brief, stage, previous, critique, renderNote, notes, history: stage ? null : history }), schema = stage ? LAYER_SCHEMA : notes?.length ? EDIT_SCHEMA : REVISE_SCHEMA;
   return drawer === 'claude' ? drawWithClaude(prompt, schema, job, previous?.png, onThought, onPartial) : drawWithCodex(prompt, schema, job, previous?.png, onThought);
 }
 
@@ -664,7 +675,7 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
       try { onLive(sanitizeSvg(composeDrawing({ ...state, defs: [...state.defs, completeElements(partialJsonString(json, 'defs'))], layers: { ...state.layers, [layer]: completeElements(partialJsonString(json, 'content')) } })), layer); } catch {}
     } : null;
     // A layer that comes back without content is asked for once more before the test fails.
-    const ask = () => draw({ brief, stage, previous, critique: revise?.critique || null, notes: layer ? null : notes, drawer, job, onThought, onPartial });
+    const ask = () => draw({ brief, stage, previous, critique: revise?.critique || null, notes: layer ? null : notes, history: revise?.history || null, drawer, job, onThought, onPartial });
     let out = await ask(), edited = null;
     const empty = o => {
       if (layer) return !layerContent(o?.content);
@@ -725,7 +736,7 @@ function runVectorRetry({ originalPath, generation, from, dataDir, ...codex }) {
   const base = generation.attempts[from], folder = join(dataDir, 'images', 'generated');
   return generationRun(dataDir, codex, originalPath, async ({ vector }) => {
     const svg = await readFile(join(folder, base.svg), 'utf8');
-    return { ...(await vector({ prompt: base.prompt, drawer: generation.drawer || base.drawer, revise: { svg, png: join(folder, base.filename), critique: base, from } })), basedOn: from };
+    return { ...(await vector({ prompt: base.prompt, drawer: generation.drawer || base.drawer, revise: { svg, png: join(folder, base.filename), critique: base, from, history: generation.attempts } })), basedOn: from };
   });
 }
 

@@ -206,3 +206,14 @@ test('Claude Code has its own status, separate from Codex', async t => {
   assert.deepEqual(await (await fetch(`${app.base}/api/status/claude`)).json(), { connected: false, message: 'Run claude auth login.' });
   assert.deepEqual(await (await fetch(`${app.base}/api/status`)).json(), { connected: true });
 });
+
+test('a drawing revision knows every attempt and when it builds on a weaker one', () => {
+  const j = (s, extra) => ({ similarity: s, scores: { palette: s, linework: s, rendering: s, texture: s, lighting: s, shapes: s }, differences: ['flat'], strengths: [], ...extra });
+  const history = [j(48), j(36, { basedOn: 0, change: 'bristle texture across the canvas' }), j(38, { basedOn: 1, change: 'faceted relief' })];
+  const prompt = drawPrompt({ brief: 'b', stage: null, previous: null, critique: history[1], history });
+  assert.match(prompt, /- Attempt 2: 36% \(palette 36[^\n]*revised from attempt 1; change: bristle texture across the canvas \(the drawing below\)/);
+  assert.match(prompt, /scores lower than attempt 1 \(48%\)/);
+  assert.match(prompt, /never as one filter or overlay across the whole canvas/);
+  // A first revision has no history to show.
+  assert.doesNotMatch(drawPrompt({ brief: 'b', stage: null, previous: null, critique: history[0], history: [history[0]] }), /Every attempt/);
+});
