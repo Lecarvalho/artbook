@@ -198,3 +198,11 @@ test('a layer that comes back empty is asked for once more; twice empty fails wi
   const styles = await (await fetch(`${app.base}/api/styles`)).json();
   assert.equal(styles.find(s => s.name === 'Ink wash').images[0].generations.length, 1);
 });
+
+test('Claude Code has its own status, separate from Codex', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'artbook-claude-status-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const app = await serve(t, { dataDir: dir, drawerStatus: async () => ({ connected: false, message: 'Run claude auth login.' }) });
+  assert.deepEqual(await (await fetch(`${app.base}/api/status/claude`)).json(), { connected: false, message: 'Run claude auth login.' });
+  assert.deepEqual(await (await fetch(`${app.base}/api/status`)).json(), { connected: true });
+});

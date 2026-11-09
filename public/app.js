@@ -784,6 +784,17 @@ async function checkConnection() {
     $('#connection-detail').textContent = result.connected ? 'Uses your subscription. Saved on this computer.' : result.message;
     if (!result.connected) toast(result.message);
   } catch (error) { $('#connection-label').textContent = 'Connection unavailable'; $('#connection-detail').textContent = error.message; }
+  checkClaude();
+}
+// Claude Code is optional: without it only "SVG · Claude" drawings are unavailable, so it never raises a toast.
+async function checkClaude() {
+  $('#claude-label').textContent = 'Checking Claude Code…'; $('#claude-detail').textContent = '';
+  try {
+    const result = await api('/api/status/claude');
+    $('#claude-label').textContent = result.connected ? 'Claude Code connected' : 'Claude Code not connected';
+    $('#claude-dot').classList.toggle('connected', result.connected);
+    $('#claude-detail').textContent = result.connected ? 'Draws SVG tests with your Claude subscription.' : `Needed only for SVG · Claude tests. ${result.message}`;
+  } catch (error) { $('#claude-label').textContent = 'Claude Code unavailable'; $('#claude-detail').textContent = error.message; }
 }
 document.addEventListener('click', event => {
   const tag = event.target.closest('[data-tag]');

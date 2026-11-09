@@ -853,6 +853,8 @@ export async function makeApp({ dataDir = join(root, 'data'), analyze = analyzeI
       const url = new URL(req.url, `http://${host}`);
       if (req.method === 'GET' && url.pathname === '/api/styles') return send(library.list());
       if (req.method === 'GET' && url.pathname === '/api/status') return send(await status());
+      // Claude Code is optional (only "SVG · Claude" drawings use it), so its status is checked on its own.
+      if (req.method === 'GET' && url.pathname === '/api/status/claude') return send(await drawerStatus());
       if (req.method === 'POST' && url.pathname === '/api/styles') return send(await library.add(JSON.parse(await body(req, 12000))), 201);
       const edit = url.pathname.match(/^\/api\/styles\/([\w-]+)$/);
       if (req.method === 'DELETE' && edit) return send(await library.removeStyle(edit[1]));
