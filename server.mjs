@@ -353,9 +353,14 @@ export const LAYERS = [
 const LAYER_IDS = LAYERS.map(l => l.id);
 export const CANVAS = { width: 1536, height: 1024 };
 // The app's drawing format: shared defs, then one top-level group per layer, in order.
-export function composeDrawing({ defs = [], layers = {}, sketchOpacity = 1 }) {
+// guide (views of a drawing in progress only: the live drawing and the frames pages show, never a drawing that is
+// parsed, revised or handed to the drawer): while color is the top layer, the sketch shows
+// faintly through it, so the construction does not vanish under the first paint; it goes once line or finish appears.
+export const SKETCH_GUIDE = '<use href="#layer-sketch" opacity="0.5" style="mix-blend-mode:multiply"/>';
+export function composeDrawing({ defs = [], layers = {}, sketchOpacity = 1, guide = false }) {
   const fade = Number.isFinite(sketchOpacity) && sketchOpacity < 1 ? ` opacity="${Math.max(0, Math.round(sketchOpacity * 100) / 100)}"` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CANVAS.width} ${CANVAS.height}" width="${CANVAS.width}" height="${CANVAS.height}"><defs>\n${defs.filter(Boolean).join('\n')}\n</defs>\n${LAYER_IDS.filter(id => layers[id]).map(id => `<g id="layer-${id}"${id === 'sketch' ? fade : ''}>\n${layers[id]}\n</g>`).join('\n')}\n</svg>`;
+  const through = guide && layers.sketch && layers.color && !layers.line && !layers.finish;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CANVAS.width} ${CANVAS.height}" width="${CANVAS.width}" height="${CANVAS.height}"><defs>\n${defs.filter(Boolean).join('\n')}\n</defs>\n${LAYER_IDS.filter(id => layers[id]).map(id => `<g id="layer-${id}"${id === 'sketch' ? fade : ''}>\n${layers[id]}\n</g>`).join('\n')}${through ? `\n${SKETCH_GUIDE}` : ''}\n</svg>`;
 }
 // Reads a saved drawing back into its parts, so a revision can replace single layers. A drawing without layer groups
 // (older or hand-made) becomes one finish layer.
@@ -678,7 +683,7 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
     const onPartial = layer ? json => {
       if (Date.now() - shown < 600) return;
       shown = Date.now();
-      try { onLive(sanitizeSvg(composeDrawing({ ...state, defs: [...state.defs, completeElements(partialJsonString(json, 'defs'))], layers: { ...state.layers, [layer]: completeElements(partialJsonString(json, 'content')) } })), layer); } catch {}
+      try { onLive(sanitizeSvg(composeDrawing({ ...state, defs: [...state.defs, completeElements(partialJsonString(json, 'defs'))], layers: { ...state.layers, [layer]: completeElements(partialJsonString(json, 'content')) }, guide: true })), layer); } catch {}
     } : null;
     // A layer that comes back without content is asked for once more before the test fails.
     const ask = () => draw({ brief, stage, previous, critique: revise?.critique || null, notes: layer ? null : notes, history: revise?.history || null, plan, drawer, job, onThought, onPartial });
@@ -699,13 +704,22 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
     const filename = `${randomUUID()}.svg`, path = join(folder, filename);
     await writeFile(path, svg); written.push(path);
     // Each stage keeps its render: pages show the light PNG; the SVG (with named layers) is for download.
-    const renderName = filename.replace(/\.svg$/, '.png'), png = join(folder, renderName);
-    await render(path, png, svgSize(svg), job); written.push(png);
+    const renderName = filename.replace(/\.svg$/, '.png');
+    let png = join(folder, renderName);
+    // A frame with the sketch showing through (see composeDrawing) is shown on pages; the drawer still sees the plain drawing.
+    const view = layer ? sanitizeSvg(composeDrawing({ ...state, guide: true })) : svg;
+    if (view !== svg) {
+      const guided = join(job, `guided-${filename}`);
+      await writeFile(guided, view);
+      await render(guided, png, svgSize(view), job); written.push(png);
+      png = join(job, renderName);
+      await render(path, png, svgSize(svg), job);
+    } else { await render(path, png, svgSize(svg), job); written.push(png); }
     const note = typeof out?.note === 'string' ? out.note.trim().slice(0, 400) : '';
     const redrawn = layer ? [layer] : notes ? edited.touched : out.layers.map(l => l.name).filter(n => LAYER_IDS.includes(n));
     stages.push({ filename, render: renderName, note, layers: redrawn });
     if (revise) Object.assign(revise, { note, redrawn });
-    onLive(svg, layer);
+    onLive(view, layer);
     onStage({ filename, render: renderName, note, stage, ...(stage === 1 && plan ? { plan } : {}) });
     previous = { svg, png };
   }
@@ -716,7 +730,7 @@ async function vectorAttempt({ dataDir, job, written, draw, render, measure = me
     for (const [n, id] of present.entries()) {
       const note = redrawn.includes(id) ? stages[0].note : `Kept from attempt ${revise.from + 1}.`;
       if (n === present.length - 1) { snapshots.push({ ...stages[0], note, layers: [id] }); break; }
-      const svg = sanitizeSvg(composeDrawing({ defs: state.defs, layers: Object.fromEntries(present.slice(0, n + 1).map(l => [l, state.layers[l]])), sketchOpacity: 1 }));
+      const svg = sanitizeSvg(composeDrawing({ defs: state.defs, layers: Object.fromEntries(present.slice(0, n + 1).map(l => [l, state.layers[l]])), sketchOpacity: 1, guide: true }));
       const file = `${randomUUID()}.svg`, path = join(folder, file), renderName = file.replace(/\.svg$/, '.png');
       await writeFile(path, svg); written.push(path);
       await render(path, join(folder, renderName), svgSize(svg), job); written.push(join(folder, renderName));
@@ -1061,7 +1075,7 @@ export async function makeApp({ dataDir = join(root, 'data'), analyze = analyzeI
       if (image) { file = join(dataDir, 'images', image[1]); mime = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }[image[2]]; }
       else if (example) { file = join(root, 'public', 'framing', example[1]); mime = 'image/jpeg'; }
       else {
-        const asset = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/fonts/InstrumentSerif-Regular.ttf': ['fonts/InstrumentSerif-Regular.ttf', 'font/ttf'], '/fonts/InstrumentSerif-Italic.ttf': ['fonts/InstrumentSerif-Italic.ttf', 'font/ttf'] }[url.pathname];
+        const asset = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/gif.js': ['gif.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/fonts/InstrumentSerif-Regular.ttf': ['fonts/InstrumentSerif-Regular.ttf', 'font/ttf'], '/fonts/InstrumentSerif-Italic.ttf': ['fonts/InstrumentSerif-Italic.ttf', 'font/ttf'] }[url.pathname];
         if (!asset) return send({ error: 'Not found.' }, 404);
         file = join(root, 'public', asset[0]); mime = asset[1];
       }

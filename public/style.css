@@ -905,6 +905,12 @@ dialog{border-radius:8px}
 @media (prefers-reduced-motion:reduce){.hero-live-label::before{animation:none}}
 .process-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
 .process .process-head h3{margin:0}
+.download-wrap{position:relative}
+.download-wrap #download-button .icon:last-child{width:14px;height:14px;margin-left:-3px;transition:transform .15s}
+.download-wrap #download-button[aria-expanded=true] .icon:last-child{transform:rotate(180deg)}
+.download-menu{left:0;right:auto;top:calc(100% + 4px);width:260px;padding:4px}
+.download-menu [role=menuitem]{display:flex;flex-direction:column;gap:2px;min-height:0;font-weight:500}
+.download-menu .menu-hint{font-size:12px;font-weight:400;color:var(--muted)}
 /* Drawings: a small tag on the attempt, and the process strip that replays its stages. */
 .vector-tag{font:var(--caption);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .process{margin-top:18px}

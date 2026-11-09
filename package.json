@@ -9,7 +9,7 @@
     "start": "node server.mjs",
     "start:network": "node server.mjs --network",
     "test": "node --test",
-    "check": "node --check server.mjs && node --check lib.mjs && node --check ai-origin.mjs && node --check network-access.mjs && node --check public/app.js && node --test"
+    "check": "node --check server.mjs && node --check lib.mjs && node --check ai-origin.mjs && node --check network-access.mjs && node --check public/app.js && node --check public/gif.js && node --test"
   },
   "engines": {
     "node": ">=22"

@@ -1,3 +1,4 @@
+import { GifEncoder } from './gif.js';
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 let styles = [], view = 'all', selectedStyle = null, editingId = null, selectedImage = null, importTarget = null;
@@ -132,10 +133,13 @@ function setMenu(open) {
   if (open) { showMenuView('main'); visibleItems(menu)[0]?.focus({ preventScroll: true }); revealMenu(); }
 }
 // Focus no longer jumps the sheet; instead scroll smoothly just enough to bring the whole menu into view.
-function revealMenu() {
-  const menu = $('#action-menu'), dialog = $('#style-dialog');
+// The menu's nearest scrolling container is moved (the style sheet, or the test view laid over it).
+function revealMenu(menu = $('#action-menu')) {
   if (!menu || menu.hidden) return;
   requestAnimationFrame(() => {
+    let dialog = menu.parentElement;
+    while (dialog && !(dialog.scrollHeight > dialog.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(dialog).overflowY))) dialog = dialog.parentElement;
+    if (!dialog) return;
     const box = menu.getBoundingClientRect(), view = dialog.getBoundingClientRect(), margin = 16;
     const below = box.bottom - (view.bottom - margin), above = (view.top + margin) - box.top;
     const delta = below > 0 ? below : above > 0 ? -above : 0;
@@ -177,6 +181,7 @@ function setupMenu() {
 }
 document.addEventListener('click', event => { if (!event.target.closest('.menu-wrap')) setMenu(false); });
 $('#style-dialog').addEventListener('cancel', event => {
+  if ($('#download-menu') && !$('#download-menu').hidden) { event.preventDefault(); event.stopImmediatePropagation(); setDownloadMenu(false); return $('#download-button').focus(); }
   if (!$('#action-menu') || $('#action-menu').hidden) return;
   event.preventDefault();
   if ($('#menu-move') && !$('#menu-move').hidden) return showMenuView('main');
@@ -1241,6 +1246,7 @@ const ICONS = {
   retry: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v3.8h-3.8"/>',
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   download: '<path d="M12 4.5v10M7.5 10.5l4.5 4.5 4.5-4.5M5 19.5h14"/>',
+  chevron: '<path d="M7.5 10l4.5 4.5 4.5-4.5"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z"/>',
   stop: '<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
   search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>',
@@ -1297,7 +1303,7 @@ function renderGenerationDialog() {
           <details><summary>Prompt used</summary><p class="generation-prompt">${escape(a.prompt)}</p></details>
           <div class="attempt-actions">
             <button class="text-button dialog-action" data-copy-generation="${n}">${icon('copy')}Copy prompt</button>
-            ${a.kind === 'vector' ? `<a class="text-button dialog-action" href="/images/generated/${escape(a.svg)}" download="artbook-drawing-${n + 1}.svg">${icon('download')}Download SVG</a>` : ''}
+            ${a.kind === 'vector' ? downloadMenu(a, n) : ''}
             ${applied ? `<span class="dialog-action generation-applied">${icon('check')}This is the style prompt</span>`
               : `<button class="text-button dialog-action" data-use-prompt="${n}">${icon('check')}Use as style prompt</button>`}
           </div>
@@ -1428,6 +1434,33 @@ function drawNoteBox(event) {
 }
 const viewedGeneration = () => selectedImage?.generations?.find(g => g.id === openGenerationId);
 $('#generation-content').addEventListener('pointerdown', drawNoteBox);
+// A drawing's downloads in one menu: the SVG (layers as named groups), its PNG render and the replay as a GIF.
+function downloadMenu(a, n) {
+  const file = `artbook-drawing-${n + 1}`;
+  return `<div class="download-wrap">
+              <button class="text-button dialog-action" id="download-button" aria-haspopup="menu" aria-expanded="false" aria-controls="download-menu">${icon('download')}<span id="download-label">${gifMaking ? 'Making GIF…' : 'Download'}</span>${icon('chevron')}</button>
+              <div class="action-menu download-menu" id="download-menu" role="menu" hidden>
+                <a role="menuitem" href="/images/generated/${escape(a.svg)}" download="${file}.svg">SVG<span class="menu-hint">Vector, layers as named groups</span></a>
+                <a role="menuitem" href="/images/generated/${escape(a.filename)}" download="${file}.png">PNG<span class="menu-hint">The rendered image</span></a>
+                ${a.stages?.length ? `<button role="menuitem" id="gif-drawing"${gifMaking ? ' disabled' : ''}>GIF<span class="menu-hint">The replay, animated and looping</span></button>` : ''}
+              </div>
+            </div>`;
+}
+function setDownloadMenu(open) {
+  const menu = $('#download-menu'), button = $('#download-button'); if (!menu) return;
+  menu.hidden = !open; button.setAttribute('aria-expanded', open);
+  if (open) { menu.querySelector('[role=menuitem]:not(:disabled)')?.focus({ preventScroll: true }); revealMenu(menu); }
+}
+document.addEventListener('click', event => {
+  if (event.target.closest('#download-button')) return setDownloadMenu($('#download-menu')?.hidden);
+  if (event.target.closest('#download-menu [role=menuitem]') || !event.target.closest('#download-menu')) setDownloadMenu(false);
+});
+document.addEventListener('keydown', event => {
+  const menu = $('#download-menu');
+  if (!menu || menu.hidden || !menu.contains(document.activeElement) || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
+  const items = [...menu.querySelectorAll('[role=menuitem]:not(:disabled)')], at = items.indexOf(document.activeElement);
+  event.preventDefault(); items[(at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+});
 // A staged drawing's process: one thumbnail per stage; choosing one shows that stage in place of the finished drawing.
 const STAGE_LABELS = ['Sketch', 'Color and tone', 'Line and detail', 'Finish'];
 function processStrip(a) {
@@ -1493,48 +1526,68 @@ document.addEventListener('click', event => {
 });
 
 // Replay: the finished drawing rebuilt shape by shape, in the order it was drawn, layer after layer.
-let replay = null;
-async function playDrawing(attempt) {
-  if (replay) return replay.stop();
-  if (!attempt?.svg) return;
-  let text;
-  try { text = await (await fetch(`/images/generated/${attempt.svg}`)).text(); } catch { return toast('The drawing could not be loaded.'); }
-  const svg = new DOMParser().parseFromString(text, 'image/svg+xml').documentElement;
-  if (svg.nodeName !== 'svg') return toast('The drawing could not be loaded.');
-  // Every visible shape, in drawing order, wherever it sits (groups stay; shapes inside defs, symbols or patterns are not steps).
+async function loadDrawing(file) {
+  try {
+    const svg = new DOMParser().parseFromString(await (await fetch(`/images/generated/${file}`)).text(), 'image/svg+xml').documentElement;
+    return svg.nodeName === 'svg' ? svg : null;
+  } catch { return null; }
+}
+// The replay's steps, applied one at a time to the drawing's DOM; each yields its note, its delay (ms) and how far along
+// it is. Every visible shape, in drawing order, wherever it sits (groups stay; shapes inside defs, symbols or patterns
+// are not steps); while color is laid the sketch shows through it, as in the live drawing; at the end the construction
+// sketch, drawn at full strength, fades to its finished opacity, as it was made.
+function* replaySteps(svg) {
   const SHAPES = 'path,line,polyline,polygon,rect,circle,ellipse,use';
   const units = [...svg.querySelectorAll(SHAPES)].filter(el => !el.closest('defs,symbol,pattern,clipPath,mask,marker'))
     .map(el => ({ el, layer: el.closest('[id^="layer-"]')?.id.slice(6) || null, display: el.getAttribute('display') }));
   if (!units.length) return;
   units.forEach(u => u.el.setAttribute('display', 'none'));
-  // The construction sketch is drawn at full strength first, then fades to its finished opacity at the end, as it was made.
   const sketch = svg.querySelector('#layer-sketch'), sketchFinal = sketch ? Number(sketch.getAttribute('opacity') ?? 1) : 1;
   sketch?.removeAttribute('opacity');
+  const guide = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  Object.entries({ href: '#layer-sketch', opacity: '0.5', style: 'mix-blend-mode:multiply' }).forEach(([k, v]) => guide.setAttribute(k, v));
+  const steps = Math.min(90, units.length), fades = sketch && sketchFinal < 1 ? 8 : 0, total = steps + fades;
+  let shown = 0;
+  for (let step = 1; step <= steps; step++) {
+    for (const upto = Math.ceil(units.length * step / steps); shown < upto; shown++) { const u = units[shown]; if (u.display === null) u.el.removeAttribute('display'); else u.el.setAttribute('display', u.display); }
+    if (sketch && units[shown - 1].layer === 'color') { if (!guide.isConnected) svg.querySelector('#layer-color').after(guide); } else guide.remove();
+    yield { note: `Replaying${layerStep(units[shown - 1].layer)} · ${shown} of ${units.length} shapes`, delay: 140, done: step / total };
+  }
+  for (let f = 1; f <= fades; f++) {
+    sketch.setAttribute('opacity', (1 - (1 - sketchFinal) * f / 8).toFixed(2));
+    yield { note: 'Fading the construction sketch', delay: 90, done: (steps + f) / total };
+  }
+}
+// The drawing's current state as a decoded image (a blob address the caller revokes).
+async function drawingImage(svg) {
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' }));
+  const img = new Image(); img.src = url; await img.decode().catch(() => {});
+  return { img, url };
+}
+let replay = null;
+async function playDrawing(attempt) {
+  if (replay) return replay.stop();
+  if (!attempt?.svg) return;
+  const svg = await loadDrawing(attempt.svg);
+  if (!svg) return toast('The drawing could not be loaded.');
   const finalSrc = $('#attempt-art').src, finalNote = $('#process-note').textContent;
   let stopped = false, url = null;
   const show = async () => {
-    const next = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' }));
-    const img = new Image(); img.src = next; await img.decode().catch(() => {});
-    const art = $('#attempt-art'); if (!art || stopped) { URL.revokeObjectURL(next); return false; }
-    art.src = next; if (url) URL.revokeObjectURL(url); url = next;
+    const next = await drawingImage(svg);
+    const art = $('#attempt-art'); if (!art || stopped) { URL.revokeObjectURL(next.url); return false; }
+    art.src = next.url; if (url) URL.revokeObjectURL(url); url = next.url;
     return true;
   };
   replay = { stop: () => { stopped = true; } };
   const label = playing => { const b = $('#play-drawing'); if (b) b.innerHTML = `${icon(playing ? 'stop' : 'play')}<span>${playing ? 'Stop' : 'Play'}</span>`; };
   label(true);
-  const steps = Math.min(90, units.length);
-  let shown = 0;
   try {
-    for (let step = 1; step <= steps && !stopped; step++) {
-      const started = performance.now(), upto = Math.ceil(units.length * step / steps);
-      for (; shown < upto; shown++) { const u = units[shown]; if (u.display === null) u.el.removeAttribute('display'); else u.el.setAttribute('display', u.display); }
+    for (const step of replaySteps(svg)) {
+      if (stopped) break;
+      const started = performance.now();
       if (!(await show())) break;
-      const note = $('#process-note'); if (note) note.textContent = `Replaying${layerStep(units[shown - 1].layer)} · ${shown} of ${units.length} shapes`;
-      await new Promise(r => setTimeout(r, Math.max(0, 140 - (performance.now() - started))));
-    }
-    if (sketch && sketchFinal < 1) {
-      const note = $('#process-note'); if (note && !stopped) note.textContent = 'Fading the construction sketch';
-      for (let f = 1; f <= 8 && !stopped; f++) { sketch.setAttribute('opacity', (1 - (1 - sketchFinal) * f / 8).toFixed(2)); await show(); await new Promise(r => setTimeout(r, 90)); }
+      const note = $('#process-note'); if (note) note.textContent = step.note;
+      await new Promise(r => setTimeout(r, Math.max(0, step.delay - (performance.now() - started))));
     }
     if (!stopped) await new Promise(r => setTimeout(r, 900));
   } finally {
@@ -1544,6 +1597,38 @@ async function playDrawing(attempt) {
     setTimeout(() => url && URL.revokeObjectURL(url), 1000);
     replay = null; label(false);
   }
+}
+// The same replay saved as an animated GIF (768 px wide, looping, the finished drawing held for 2.5 s), made in the page.
+let gifMaking = false;
+async function downloadGif(attempt, n) {
+  if (gifMaking || !attempt?.svg) return;
+  const svg = await loadDrawing(attempt.svg);
+  if (!svg) return toast('The drawing could not be loaded.');
+  gifMaking = true;
+  const label = text => { const l = $('#download-label'); if (l) l.textContent = text; const b = $('#gif-drawing'); if (b) b.disabled = gifMaking; };
+  label('Making GIF…');
+  try {
+    const box = (svg.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+    const ratio = box[2] > 0 && box[3] > 0 ? box[3] / box[2] : 2 / 3;
+    const width = 768, height = Math.round(width * ratio);
+    const canvas = Object.assign(document.createElement('canvas'), { width, height });
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const gif = new GifEncoder(width, height);
+    for (const step of replaySteps(svg)) {
+      const { img, url } = await drawingImage(svg);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      gif.addFrame(ctx.getImageData(0, 0, width, height).data, step.delay / 10);
+      label(`Making GIF ${Math.round(step.done * 100)}%`);
+      await new Promise(r => setTimeout(r)); // keeps the page responsive between frames
+    }
+    gif.hold(250);
+    const url = URL.createObjectURL(new Blob([gif.finish()], { type: 'image/gif' }));
+    Object.assign(document.createElement('a'), { href: url, download: `artbook-drawing-${n + 1}.gif` }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch { toast('The GIF could not be made.'); }
+  finally { gifMaking = false; label('Download'); }
 }
 // The polled step of a "Try again" running for this test, or null.
 const retryState = g => selectedImage && retrying.get(selectedImage.id) === g.id ? generating.get(selectedImage.id) || null : null;
@@ -1795,6 +1880,7 @@ $('#generation-content').addEventListener('click', async event => {
   const tab = event.target.closest('[data-attempt]');
   if (tab) return selectAttempt(tab.dataset.attempt);
   if (event.target.closest('#play-drawing')) return playDrawing(generation.attempts[viewedAttempt(generation)]);
+  if (event.target.closest('#gif-drawing')) return downloadGif(generation.attempts[viewedAttempt(generation)], viewedAttempt(generation));
   const stage = event.target.closest('[data-stage]');
   if (stage) return showStage(stage, generation.attempts[viewedAttempt(generation)]);
   const view = event.target.closest('[data-generated]');

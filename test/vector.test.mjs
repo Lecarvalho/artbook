@@ -4,7 +4,7 @@ import { mkdtemp, rm, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLibrary, sanitizeSvg, svgSize } from '../lib.mjs';
-import { makeApp, drawPrompt, claudeSubscription, composeDrawing, parseDrawing, completeElements, partialJsonString } from '../server.mjs';
+import { makeApp, drawPrompt, claudeSubscription, composeDrawing, SKETCH_GUIDE, parseDrawing, completeElements, partialJsonString } from '../server.mjs';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=', 'base64');
 const judgement = score => ({ scores: { palette: score, linework: score, rendering: score, texture: score, lighting: score, shapes: score }, differences: ['contours too even'], strengths: ['same warm paper'], summary: 'Close.' });
@@ -48,6 +48,11 @@ test('layers stack into named groups and read back, and a fading sketch keeps it
   assert.deepEqual(back.layers, { sketch: '<path d="M0 0"/>', line: '<g><path d="M1 1"/></g>' });
   assert.equal(back.sketchOpacity, 0.2);
   assert.deepEqual(back.defs, ['<filter id="color-wash"/>']);
+  // A view in progress lets the sketch show through while color is the top layer, and drops it once line or finish appears.
+  const guided = composeDrawing({ layers: { sketch: '<path/>', color: '<rect/>' }, guide: true });
+  assert.ok(guided.includes(`</g>\n${SKETCH_GUIDE}\n</svg>`));
+  assert.ok(!composeDrawing({ layers: { sketch: '<path/>', color: '<rect/>', line: '<path/>' }, guide: true }).includes(SKETCH_GUIDE));
+  assert.ok(!composeDrawing({ layers: { sketch: '<path/>', color: '<rect/>' } }).includes(SKETCH_GUIDE));
   // A drawing without layers becomes one finish layer.
   assert.deepEqual(parseDrawing('<svg viewBox="0 0 10 10"><defs><filter id="f"/></defs><rect/></svg>').layers, { finish: '<rect/>' });
 });
@@ -114,6 +119,8 @@ test('a vector test draws four stacked layers, keeps every stage, serves drawing
   assert.ok(draws.every(d => d.brief === 'a fox. ink and wash' && d.drawer === 'claude' && d.job.startsWith(dir)));
   assert.equal(draws[0].previous, null);
   assert.match(draws[2].previous, /<g id="layer-sketch">[\s\S]*<g id="layer-color">/);
+  // The color frame pages show has the sketch showing through; the drawing the drawer gets does not.
+  assert.ok(!draws[2].previous.includes(SKETCH_GUIDE));
   const attempt = generation.attempts[0];
   assert.deepEqual([attempt.kind, attempt.similarity, attempt.prompt], ['vector', 55, '[a fox] ink and wash']);
   assert.deepEqual(attempt.stages.map(st => [st.note, st.layers]), [['sketch note', ['sketch']], ['color note', ['color']], ['line note', ['line']], ['finish note', ['finish']]]);
@@ -176,6 +183,7 @@ test('the drawing can be watched while it is written', async t => {
   assert.equal((await running).status, 200);
   // The finished sketch layer plus the complete part of the color layer being written.
   assert.match(seen, /<g id="layer-sketch">\n<path id="layer1"\/>\n<\/g>\n<g id="layer-color">\n<path id="color-1"\/>\n<\/g>/);
+  assert.ok(seen.includes(SKETCH_GUIDE), 'the sketch shows through the color being laid');
   assert.equal((await fetch(`${app.base}/api/jobs/unknown-job-id/drawing`)).status, 404);
 });
 

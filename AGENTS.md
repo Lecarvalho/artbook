@@ -10,7 +10,7 @@ Artbook is a local visual-style reference library. It uses Node.js 22+, native E
 - `network-access.mjs`: opt-in LAN access (allowed hosts, access key, cookie).
 - `ai-origin.mjs`: AI-origin evidence from file metadata and visible watermarks.
 - `pinterest.mjs`: Pinterest pin resolution and image downloads.
-- `public/index.html`, `public/app.js`, `public/style.css`: browser interface.
+- `public/index.html`, `public/app.js`, `public/style.css`: browser interface. `public/gif.js`: the animated GIF encoder for the drawing replay.
 - `analysis-schema.json`, `match-schema.json`, `judge-schema.json`, `recalibrate-schema.json`, `review-schema.json`: structured outputs for classification, matching, test-generation judging, prompt refinement and the identification check.
 - `test/*.test.mjs`: Node's built-in test runner tests.
 - `README.md`: setup and supported behavior (demo videos are GitHub-hosted attachments). `PRODUCT.md` and `DESIGN.md`: product and interface guidance.
