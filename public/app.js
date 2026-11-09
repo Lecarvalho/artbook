@@ -212,6 +212,8 @@ function referencePanel(style) {
                 <label><input type="radio" name="test-mode" value="claude"><span>SVG · Claude</span></label>
                 <label><input type="radio" name="test-mode" value="codex"><span>SVG · Codex</span></label>
               </div></div>
+            <div class="test-field" id="model-field" hidden><span class="test-label">Model</span>
+              <div class="framing-controls"><div class="framing-picker" data-kind="model"><button type="button" class="framing-chip" id="model-chip" aria-haspopup="listbox" aria-expanded="false"><span class="framing-current"></span></button><div class="framing-pop model-pop" role="listbox" aria-label="Drawing model" hidden></div></div></div></div>
             <button class="primary test-button" id="generate-style" title="Uses the prompt only, not this image. Takes a few minutes and uses your Codex allowance."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.4A2 2 0 0 0 7.3 20.5h9.4a2 2 0 0 0 1.7-3.1l-4.9-8.7V3.5M7.8 14h8.4"/></svg><span id="generate-label">Test this prompt</span></button></div>
           <div class="generate-progress" id="generate-progress" hidden><span id="generate-status" role="status"></span><span class="step-dots" id="step-dots" aria-hidden="true">${'<i></i>'.repeat(5)}</span><span class="generate-thought" id="generate-thought" hidden></span></div>
           <div class="tests" id="tests" hidden><p class="tests-label">Tests</p><div id="generations" class="generations" role="group" aria-label="Test generations"></div></div>
@@ -289,7 +291,7 @@ function selectImage(index) {
   const subject = (image.stylePrompt || '').match(/\[([^\]]*)\]/)?.[1] || '';
   if ($('#test-subject')) { $('#test-subject').value = subject; $('#test-subject').dataset.original = subject; $('#subject-field').hidden = !subject; }
   restoreFraming();
-  if ($('#test-mode')) { let saved = null; try { saved = localStorage.getItem('artbook-test-mode'); } catch {} const choice = $(`input[name="test-mode"][value="${['image', 'claude', 'codex'].includes(saved) ? saved : 'image'}"]`); if (choice) choice.checked = true; }
+  if ($('#test-mode')) { let saved = null; try { saved = localStorage.getItem('artbook-test-mode'); } catch {} const choice = $(`input[name="test-mode"][value="${['image', 'claude', 'codex'].includes(saved) ? saved : 'image'}"]`); if (choice) choice.checked = true; fillModelSelect(); }
   $('#image-prompts').hidden = !image.imagePrompt && !image.stylePrompt;
   $('#prompts-missing').hidden = !$('#image-prompts').hidden;
   document.querySelectorAll('[data-prompt-tab]').forEach(tab => { tab.hidden = !$(`#${tab.dataset.promptTab}`).textContent; });
@@ -790,6 +792,7 @@ async function checkConnection() {
     if (!result.connected) toast(result.message);
   } catch (error) { $('#connection-label').textContent = 'Connection unavailable'; $('#connection-detail').textContent = error.message; }
   checkClaude();
+  loadDrawModels();
 }
 // Claude Code is optional: without it only "SVG · Claude" drawings are unavailable, so it never raises a toast.
 async function checkClaude() {
@@ -1025,9 +1028,46 @@ const GENERATE_STEPS = { queued: 'Waiting in line…', running: 'Setting up…',
   'draw-1': 'Sketching the structure…', 'draw-2': 'Laying in color and tone…', 'draw-3': 'Drawing line and detail…', 'draw-4': 'Checking and finishing…', 'judge-vector': 'Critiquing it against the original…',
   'draw-revise': 'Revising the drawing from the critique…', 'judge-revise': 'Critiquing the revision…' };
 const DRAWER_NAMES = { claude: 'Claude', codex: 'Codex' };
+const drawingWith = new Map(); // imageId -> who draws the new test started from this page, shown beside its steps
 // The last "Test as" choice is a per-viewer convenience.
 const testMode = () => $('input[name="test-mode"]:checked')?.value || 'image';
-document.addEventListener('change', event => { if (event.target.name === 'test-mode') { try { localStorage.setItem('artbook-test-mode', event.target.value); } catch {} markGenerating(); } });
+document.addEventListener('change', event => {
+  if (event.target.name === 'test-mode') { try { localStorage.setItem('artbook-test-mode', event.target.value); } catch {} fillModelSelect(); markGenerating(); }
+});
+// The models each drawer offers, so drawings by different models can be compared. The last choice per drawer is a
+// per-viewer convenience; without a list (Codex could not give one) the drawer uses its default.
+let drawModels = { claude: [], codex: [] };
+async function loadDrawModels() { try { drawModels = await api('/api/draw-models'); } catch {} fillModelSelect(); markGenerating(); }
+// The chosen model for the current drawer: the saved choice when it is still offered, else the first one ('' = the drawer's default).
+function chosenModel() {
+  const mode = testMode(), list = drawModels[mode] || [];
+  if (mode === 'image' || !list.length) return '';
+  let saved = null; try { saved = localStorage.getItem(`artbook-draw-model-${mode}`); } catch {}
+  return list.some(m => m.id === saved) ? saved : list[0].id;
+}
+// The model picker works like the framing pickers: a chip that opens a list of the drawer's models.
+function fillModelSelect() {
+  const field = $('#model-field'), pop = $('#model-field .framing-pop'); if (!field || !pop) return;
+  const mode = testMode();
+  field.hidden = mode === 'image'; if (mode === 'image') return;
+  const list = drawModels[mode] || [], chosen = chosenModel();
+  pop.innerHTML = (list.length ? list : [{ id: '', label: 'Default' }]).map(m => `<button type="button" role="option" class="framing-option" data-value="${escape(m.id)}" aria-selected="${m.id === chosen}">
+    <span class="framing-label">${escape(m.label)}</span>${mode === 'claude' || !m.id ? `<span class="framing-hint">${escape(m.id ? m.model || `Latest ${m.label} model` : `${DRAWER_NAMES[mode]} picks its model`)}</span>` : ''}</button>`).join('');
+  const label = list.find(m => m.id === chosen)?.label || 'Default';
+  $('#model-chip .framing-current').textContent = label;
+  $('#model-chip').setAttribute('aria-label', `Drawing model: ${label}`);
+}
+// A drawing model's name: the drawer's own label for it, or a Claude model read from its full name ("claude-opus-5-5" is "Opus 5.5").
+function modelName(drawer, id) {
+  if (!id) return '';
+  const listed = (drawModels[drawer] || []).find(m => m.id === id); if (listed) return listed.label;
+  const claude = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/);
+  return claude ? `${claude[1][0].toUpperCase()}${claude[1].slice(1)} ${claude[2]}${claude[3] ? `.${claude[3]}` : ''}` : id;
+}
+// Who drew: the drawer and, when known, its model ("Claude Opus 5.5", "Codex GPT-6.1-Sol").
+const drawnBy = (drawer, model) => [DRAWER_NAMES[drawer], modelName(drawer, model)].filter(Boolean).join(' ');
+// A test's drawer and model: the model its first attempt reports, else the one chosen for it.
+const testDrawnBy = g => drawnBy(g.drawer || g.attempts?.[0]?.drawer, g.attempts?.find(a => a.model)?.model || g.model);
 const TRAIT_LABELS = { palette: 'Palette', linework: 'Linework', rendering: 'Rendering', texture: 'Texture', lighting: 'Lighting', shapes: 'Shapes' };
 // Framing for a test: shot size and camera angle become one sentence right after the [subject] in the prompt, so Copy
 // and Test carry it and a refined prompt keeps it. It is not part of the saved style prompt.
@@ -1061,7 +1101,7 @@ function framingPicker(kind, name, options) {
     </div>`;
 }
 function showFramingChoice() {
-  for (const picker of document.querySelectorAll('.framing-picker')) {
+  for (const picker of document.querySelectorAll('.framing-picker:not([data-kind="model"])')) {
     const kind = picker.dataset.kind, option = FRAMING_OPTIONS[kind][framing[kind]];
     picker.querySelector('.framing-current').textContent = option.label;
     picker.querySelector('.framing-chip').setAttribute('aria-label', `${kind === 'shot' ? 'Shot size' : 'Camera angle'}: ${option.label}`);
@@ -1083,6 +1123,11 @@ document.addEventListener('click', event => {
   }
   if (option) {
     const picker = option.closest('.framing-picker');
+    if (picker.dataset.kind === 'model') {
+      try { localStorage.setItem(`artbook-draw-model-${testMode()}`, option.dataset.value); } catch {}
+      fillModelSelect(); closeFramingPickers(); markGenerating(); picker.querySelector('.framing-chip').focus();
+      return;
+    }
     framing[picker.dataset.kind] = option.dataset.value;
     try { localStorage.setItem('artbook-framing', JSON.stringify(framing)); } catch {}
     showFramingChoice(); renderFraming(); closeFramingPickers();
@@ -1133,9 +1178,10 @@ function generateFromPrompt() {
   const prompt = promptText($('#panel-style-prompt'));
   if (!prompt) return toast('This image has no style prompt yet. Re-identify it first.');
   const mode = testMode(), vector = mode !== 'image';
+  if (vector) drawingWith.set(image.id, drawnBy(mode, chosenModel())); else drawingWith.delete(image.id);
   generateErrors.delete(image.id); generating.set(image.id, 'queued'); markGenerating();
   sendJob({ id: newJobId(), kind: 'generate', imageId: image.id, live: true }, '/api/generate',
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: image.id, prompt, ...(vector ? { mode: 'vector', drawer: mode } : {}) }) });
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageId: image.id, prompt, ...(vector ? { mode: 'vector', drawer: mode, ...(chosenModel() ? { model: chosenModel() } : {}) } : {}) }) });
 }
 // Server steps in order; the progress dots fill as each one finishes.
 const STEP_ORDER = ['generate-1', 'judge-1', 'recalibrate', 'generate-2', 'judge-2'];
@@ -1159,10 +1205,11 @@ function markGenerating() {
   $('#generate-label').textContent = state === 'queued' ? 'Queued' : state ? 'Testing…' : 'Test this prompt';
   const mode = testMode();
   $('#generate-style').title = mode === 'image' ? 'Uses the prompt only, not this image. Takes a few minutes and uses your Codex allowance.'
-    : `${DRAWER_NAMES[mode]} draws the style as vector code from the prompt only, in four stages, then Codex compares it with this image. Takes several minutes and uses your ${DRAWER_NAMES[mode]} and Codex allowance.`;
+    : `${drawnBy(mode, chosenModel())} draws the style as vector code from the prompt only, in four stages, then Codex compares it with this image. Takes several minutes and uses your ${mode === 'codex' ? 'Codex' : `${DRAWER_NAMES[mode]} and Codex`} allowance.`;
   $('#generate-progress').hidden = !state && !failure;
   $('#generate-progress').classList.toggle('failed', !!failure);
-  $('#generate-status').textContent = state ? GENERATE_STEPS[state] || 'Working…' : failure || '';
+  const who = state?.startsWith('draw-') ? drawingWith.get(selectedImage.id) : '';
+  $('#generate-status').textContent = state ? `${who ? `${who} · ` : ''}${GENERATE_STEPS[state] || 'Working…'}` : failure || '';
   stepDots($('#step-dots'), state, retrying.has(selectedImage?.id));
   const live = state ? liveJobs.get(selectedImage.id) : null;
   const first = live?.judged?.[0] && !retrying.has(selectedImage.id) ? `Attempt 1: ${live.judged[0].similarity}%. ` : '';
@@ -1234,7 +1281,7 @@ function renderGenerations() {
   $('#tests').hidden = !selectedImage?.generations?.length;
   box.innerHTML = [...(selectedImage?.generations || [])].reverse().map(g => {
     const best = g.attempts.reduce((a, b) => b.similarity > a.similarity ? b : a);
-    return `<button class="generation-chip" data-open-generation="${escape(g.id)}" aria-label="Open test generation, best style match ${best.similarity}%"><img src="/images/generated/${escape(best.filename)}" alt="" loading="lazy"><span>${best.similarity}%</span></button>`;
+    return `<button class="generation-chip" data-open-generation="${escape(g.id)}" aria-label="Open test generation, best style match ${best.similarity}%${g.mode === 'vector' ? `, drawn by ${escape(testDrawnBy(g))}` : ''}"${g.mode === 'vector' ? ` title="Drawn by ${escape(testDrawnBy(g))}"` : ''}><img src="/images/generated/${escape(best.filename)}" alt="" loading="lazy"><span>${best.similarity}%</span></button>`;
   }).join('');
   if (generationOpen()) renderGenerationDialog();
 }
@@ -1273,7 +1320,7 @@ function renderGenerationDialog() {
   const change = a.change || (n === 1 ? g.recalibration : null); // tests saved before per-attempt notes kept one note on the test
   $('#generation-title').textContent = `Test generation · ${date}`;
   $('#generation-content').innerHTML = `
-    <p class="form-intro">${g.mode === 'vector' ? `Drawn as vector code${DRAWER_NAMES[g.drawer] ? ` by ${DRAWER_NAMES[g.drawer]}` : ''} from the prompt alone, in four stages, then held against the original.` : 'Painted from the prompt alone, then held against the original.'} Match is the mean of six trait scores.</p>
+    <p class="form-intro">${g.mode === 'vector' ? `Drawn as vector code${testDrawnBy(g) ? ` by ${escape(testDrawnBy(g))}` : ''} from the prompt alone, in four stages, then held against the original.` : 'Painted from the prompt alone, then held against the original.'} Match is the mean of six trait scores.</p>
     <div class="attempt-tabs" role="tablist" aria-label="Attempts">${g.attempts.map((x, i) => `<button role="tab" id="attempt-tab-${i}" aria-controls="attempt-panel" aria-selected="${!live && i === n}" tabindex="${!live && i === n ? 0 : -1}" data-attempt="${i}">
       <span>Attempt ${i + 1}</span><strong class="${x.similarity >= target ? '' : 'match-low'}">${x.similarity}%</strong>${i === best && g.attempts.length > 1 ? '<em>Best</em>' : ''}</button>`).join('')}
       <button role="tab" class="attempt-pending" id="attempt-tab-live" aria-controls="attempt-panel" aria-selected="${live}" tabindex="${live ? 0 : -1}" data-attempt="live" hidden><span>Attempt ${g.attempts.length + 1}</span><i></i></button></div>
@@ -1281,7 +1328,7 @@ function renderGenerationDialog() {
       <div class="generation-compare">
         <figure class="attempt"><button class="attempt-image" data-generated aria-label="View the original larger"><img src="${imageURL(selectedImage)}" alt="Original reference">${noteLayer(a, 'original')}</button><figcaption><strong>Original</strong></figcaption></figure>
         <figure class="attempt"><button class="attempt-image" data-generated aria-label="View attempt ${n + 1} larger"><img id="attempt-art" src="/images/generated/${escape(a.filename)}" alt="${a.kind === 'vector' ? 'Drawn' : 'Generated'} in attempt ${n + 1}">${noteLayer(a, 'generated')}</button>
-          <figcaption><strong class="${a.similarity >= target ? '' : 'match-low'}">${a.similarity}% style match</strong>${before ? `<span>${signed(a.similarity - before.similarity)} from attempt ${base + 1}</span>` : '<span>Prompt as written</span>'}${a.kind === 'vector' ? `<span class="vector-tag">Vector${DRAWER_NAMES[a.drawer] ? ` · ${DRAWER_NAMES[a.drawer]}` : ''}</span>` : ''}</figcaption></figure>
+          <figcaption><strong class="${a.similarity >= target ? '' : 'match-low'}">${a.similarity}% style match</strong>${before ? `<span>${signed(a.similarity - before.similarity)} from attempt ${base + 1}</span>` : '<span>Prompt as written</span>'}${a.kind === 'vector' ? `<span class="vector-tag">Vector${drawnBy(a.drawer || g.drawer, a.model) ? ` · ${escape(drawnBy(a.drawer || g.drawer, a.model))}` : ''}</span>` : ''}</figcaption></figure>
       </div>
       ${a.stages?.length > 1 ? processStrip(a) : ''}
       ${n === g.attempts.length - 1 && g.error ? `<p class="error">${escape(g.error)}</p>` : ''}
@@ -1702,7 +1749,7 @@ function renderRetryStatus() {
   $('#retry-label').textContent = running === 'queued' ? 'Queued' : running ? 'Trying again…' : from === g.attempts.length - 1 ? 'Try again' : `Try again from attempt ${from + 1}`;
   const drawing = g.attempts[from]?.kind === 'vector';
   button.title = full ? `A test keeps at most ${MAX_TEST_ATTEMPTS} attempts. Start a new test from the prompt tab.`
-    : drawing ? `Revises this drawing from its critique, then compares again. Takes a few minutes and uses your ${DRAWER_NAMES[g.drawer] || 'drawing'} and Codex allowance.`
+    : drawing ? `Revises this drawing from its critique, then compares again. Takes a few minutes and uses your ${DRAWER_NAMES[g.drawer] || 'drawing'} and Codex allowance.${testDrawnBy(g) ? ` Drawn by ${testDrawnBy(g)}.` : ''}`
     : 'Refines the newest prompt, generates once more and compares. Takes a few minutes and uses your Codex allowance.';
   const status = $('#retry-status');
   // While the live tab is open its studio notes already show the current step and its progress dots; don't repeat them beside the button.

@@ -723,6 +723,11 @@ dialog{border-radius:8px}
 .framing-label{font-size:12.5px;font-weight:500;color:var(--ink)}
 .framing-hint{font-size:11.5px;line-height:1.4;color:var(--muted)}
 .prompt-framing{color:var(--ink);font-weight:500}
+/* Drawing model: a framing-style chip; its list holds names only, so it is narrower than the picture grid. */
+#model-field>.test-label{grid-column:1}
+.generate-bar #model-field .framing-controls{grid-column:2}
+.model-pop{right:auto;min-width:220px;grid-template-columns:minmax(0,1fr);gap:2px;padding:6px}
+.model-pop .framing-option{padding:8px 10px}
 .generate-bar .test-button{grid-column:3;justify-self:end;min-height:36px;padding:8px 16px;gap:8px}
 /* In a narrow panel the action drops under the choice instead of squeezing it. */
 .generate-row{container-type:inline-size}
@@ -733,6 +738,8 @@ dialog{border-radius:8px}
   .segmented{justify-self:stretch}
   .segmented span{padding:7px 8px;font-size:12px}
   .generate-bar #test-subject,.generate-bar .framing-controls{grid-column:1}
+  #model-field>.test-label,.generate-bar #model-field .framing-controls{grid-column:1}
+  .model-pop{right:0}
   .framing-picker{flex:1 1 140px;display:flex}
   .framing-chip{flex:1}
   .framing-pop{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -973,9 +980,11 @@ button.live-image{cursor:zoom-in}
 .review-start{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px}
 .review-start .retry-status:empty+*{margin-left:0}
 @media(min-width:900px){
-  .style-info .image-prompts:has(#generate-row:not([hidden])){min-height:330px}
-  .style-info .image-prompts:has(#generate-row:not([hidden]) :is(#tests,#generate-progress):not([hidden])){min-height:380px}
-  .style-info .image-prompts:has(#generate-row:not([hidden]) #tests:not([hidden])):has(#generate-progress:not([hidden])){min-height:420px}
+  /* The drawing model row adds one line to the test form. */
+  .style-info .image-prompts:has(#model-field:not([hidden])){--model-row:46px}
+  .style-info .image-prompts:has(#generate-row:not([hidden])){min-height:calc(330px + var(--model-row,0px))}
+  .style-info .image-prompts:has(#generate-row:not([hidden]) :is(#tests,#generate-progress):not([hidden])){min-height:calc(380px + var(--model-row,0px))}
+  .style-info .image-prompts:has(#generate-row:not([hidden]) #tests:not([hidden])):has(#generate-progress:not([hidden])){min-height:calc(420px + var(--model-row,0px))}
 }
 @media(max-width:700px){
   .generation-compare{gap:10px}

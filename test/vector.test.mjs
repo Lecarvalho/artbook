@@ -248,3 +248,61 @@ test('the sketch stage writes a composition plan that every later layer and revi
   assert.match(asked.at(-1).prompt, /keep it, unless the critique or a note asks to change the composition/);
   assert.equal(generation.attempts[1].plan, plan);
 });
+
+test('a drawing uses the model the user chose, records the model that drew, and keeps it on Try again', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'artbook-model-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await library(dir);
+  const asked = [];
+  const app = await serve(t, { dataDir: dir,
+    drawModels: async () => ({ claude: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }], codex: [{ id: 'gpt-test', label: 'GPT Test' }] }),
+    draw: async ({ stage, drawer, model, onModel }) => {
+      asked.push([drawer, model]);
+      // Claude reports the model an alias resolved to.
+      if (drawer === 'claude') onModel?.(`claude-${model}-9-1`);
+      if (stage) return { content: `<rect id="s${stage}"/>`, defs: '', sketchOpacity: 1, note: 'n' };
+      return { layers: [{ name: 'line', content: '<path/>' }], defs: '', sketchOpacity: 1, note: 'fixed' };
+    } });
+  const models = await (await fetch(`${app.base}/api/draw-models`)).json();
+  assert.deepEqual(models.codex, [{ id: 'gpt-test', label: 'GPT Test' }]);
+
+  // A model the drawer does not offer is refused before anything is drawn.
+  let response = await app.post('/api/generate', { imageId: 'img', prompt: '[a fox] ink', mode: 'vector', drawer: 'claude', model: 'gpt-test' });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /Choose a model Claude offers/);
+  assert.equal(asked.length, 0);
+
+  response = await app.post('/api/generate', { imageId: 'img', prompt: '[a fox] ink', mode: 'vector', drawer: 'claude', model: 'sonnet' });
+  let generation = (await response.json()).images[0].generations[0];
+  assert.deepEqual(asked, Array(4).fill(['claude', 'sonnet']));
+  assert.deepEqual([generation.drawer, generation.model, generation.attempts[0].model], ['claude', 'sonnet', 'claude-sonnet-9-1']);
+  generation = (await (await app.post(`/api/images/img/generations/${generation.id}/retry`, { from: 0 })).json()).images[0].generations[0];
+  assert.deepEqual(asked.at(-1), ['claude', 'sonnet']);
+  assert.equal(generation.attempts[1].model, 'claude-sonnet-9-1');
+
+  // Codex draws with the chosen model; without a choice the drawer keeps its default and no model is recorded.
+  generation = (await (await app.post('/api/generate', { imageId: 'img', prompt: '[a fox] ink', mode: 'vector', drawer: 'codex', model: 'gpt-test' })).json()).images[0].generations.at(-1);
+  assert.deepEqual([asked.at(-1), generation.model, generation.attempts[0].model], [['codex', 'gpt-test'], 'gpt-test', 'gpt-test']);
+  generation = (await (await app.post('/api/generate', { imageId: 'img', prompt: '[a fox] ink', mode: 'vector', drawer: 'codex' })).json()).images[0].generations.at(-1);
+  assert.deepEqual([asked.at(-1), generation.model, generation.attempts[0].model], [['codex', null], null, null]);
+});
+
+test('Codex offers its listed models that read images, in its own order', async () => {
+  const { codexModelList } = await import('../server.mjs');
+  assert.deepEqual(codexModelList({ models: [
+    { slug: 'b-model', display_name: 'B', visibility: 'list', priority: 2, input_modalities: ['text', 'image'] },
+    { slug: 'hidden', display_name: 'H', visibility: 'hide', priority: 0, input_modalities: ['text', 'image'] },
+    { slug: 'text-only', display_name: 'T', visibility: 'list', priority: 1, input_modalities: ['text'] },
+    { slug: 'a-model', display_name: 'A', visibility: 'list', priority: 1, input_modalities: ['text', 'image'] },
+    { slug: 'bad slug!', visibility: 'list', priority: 1 },
+  ] }), [{ id: 'a-model', label: 'A' }, { id: 'b-model', label: 'B' }]);
+  assert.deepEqual(codexModelList(null), []);
+});
+
+test('a Claude model name reads as its family and version', async () => {
+  const { claudeModelLabel } = await import('../server.mjs');
+  assert.equal(claudeModelLabel('claude-fable-5-2'), 'Fable 5.2');
+  assert.equal(claudeModelLabel('claude-opus-5'), 'Opus 5');
+  assert.equal(claudeModelLabel('claude-sonnet-4-5-20250929'), 'Sonnet 4.5');
+  assert.equal(claudeModelLabel('fable'), null);
+});

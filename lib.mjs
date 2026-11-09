@@ -112,6 +112,8 @@ export const promptForGenerator = prompt => String(prompt).replace(/^\s*\[([^\]]
 const GENERATED_FILE =/^[a-f0-9-]{8,64}\.(png|jpg|webp)$/;
 const SVG_FILE = /^[a-f0-9-]{8,64}\.svg$/;
 export const DRAWERS = ['claude', 'codex'];
+// The model a drawer drew with: a CLI alias or full model name (for example "opus", "claude-opus-5-5", "gpt-6.1-sol").
+export const drawModel = value => typeof value === 'string' && /^[a-z0-9][\w.:-]{0,79}$/i.test(value) ? value : null;
 // Vector drawings are written by a text model as SVG code. They are cleaned before they are saved, rendered or served:
 // only drawing markup and inline styles stay (no scripts, embedded HTML, external links, raster images or event handlers).
 export const MAX_SVG = 600 * 1024;
@@ -172,7 +174,7 @@ export function validateAttempt(attempt) {
   const basedOn = Number.isInteger(attempt.basedOn) && attempt.basedOn >= 0 ? attempt.basedOn : null;
   // A vector attempt keeps its SVG and, for a staged drawing, every stage with the drawer's note; filename is its render.
   const vector = attempt.kind === 'vector' && SVG_FILE.test(attempt.svg || '') ? {
-    kind: 'vector', drawer: DRAWERS.includes(attempt.drawer) ? attempt.drawer : null, svg: attempt.svg, plan: text(attempt.plan, 900),
+    kind: 'vector', drawer: DRAWERS.includes(attempt.drawer) ? attempt.drawer : null, model: drawModel(attempt.model), svg: attempt.svg, plan: text(attempt.plan, 900),
     stages: (Array.isArray(attempt.stages) ? attempt.stages : []).filter(st => SVG_FILE.test(st?.filename || '')).slice(0, 6).map(st => ({ filename: st.filename, render: GENERATED_FILE.test(st.render || '') ? st.render : null, note: text(st.note, 400), layers: (Array.isArray(st.layers) ? st.layers : []).filter(l => ['sketch', 'color', 'line', 'finish'].includes(l)) })),
   } : {};
   let notes = [];
@@ -187,7 +189,7 @@ export function validateGeneration(value) {
   if (raw[1] && !raw[1].change && value.recalibration) raw[1] = { ...raw[1], change: value.recalibration };
   const attempts = raw.map(validateAttempt);
   if (!attempts.length) throw new Error('A generation needs at least one image.');
-  const vector = value.mode === 'vector' ? { mode: 'vector', drawer: DRAWERS.includes(value.drawer) ? value.drawer : null } : {};
+  const vector = value.mode === 'vector' ? { mode: 'vector', drawer: DRAWERS.includes(value.drawer) ? value.drawer : null, model: drawModel(value.model) } : {};
   return { id: typeof value.id === 'string' && /^[\w-]{8,64}$/.test(value.id) ? value.id : randomUUID(), createdAt: text(value.createdAt, 40) || new Date().toISOString(), target: Number.isFinite(value.target) ? value.target : null, ...vector, attempts, error: text(value.error, 300) };
 }
 // An identification check: proposed changes to the style name, tags and collection of one image, each with a
