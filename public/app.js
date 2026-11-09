@@ -61,8 +61,9 @@ function render() {
   $('#view-count').textContent = `${filtered.length} styles`;
   $('#gallery').innerHTML = filtered.map(s => {
     const index = styles.indexOf(s), image = s.images.at(-1);
-    return `<article class="style-card"><button class="card-open" data-style="${s.id}" aria-label="Open ${escape(s.name)}"><div class="cover ${image ? '' : `cover-empty tone-${index % 6}`}">${image ? coverMosaic(s) : `<svg viewBox="0 0 44 44" aria-hidden="true">${symbols[index % 6]}</svg><span class="specimen-name">${escape(s.name)}</span>`}<span class="cover-count">${image ? `${s.images.length} reference${s.images.length === 1 ? '' : 's'}` : 'Ready to collect'}</span></div><div class="card-title"><h3>${escape(s.name)}</h3><span>${image ? 'Collected' : 'To explore'}</span></div></button><div class="style-tags">${(s.tags || []).slice(0, 4).map(tag => `<button class="keyword" data-tag="${escape(tag)}">${escape(tag)}</button>`).join('')}</div><p class="card-keywords">${s.keywords.slice(0, 2).map(escape).join(' · ')}</p><a class="card-search" href="${links(s.keywords[0])['Google Images']}" target="_blank" rel="noopener noreferrer">Find inspiration <span aria-hidden="true">↗</span></a></article>`;
+    return `<article class="style-card"><button class="card-open" data-style="${s.id}" aria-label="Open ${escape(s.name)}"><div class="cover ${image ? '' : `cover-empty tone-${index % 6}`}">${image ? coverMosaic(s) : `<svg viewBox="0 0 44 44" aria-hidden="true">${symbols[index % 6]}</svg><span class="specimen-name">${escape(s.name)}</span>`}<span class="cover-count">${image ? `${s.images.length} reference${s.images.length === 1 ? '' : 's'}` : 'Ready to collect'}</span>${image ? '<span class="cover-busy" role="status" hidden><i></i><span></span></span>' : ''}</div><div class="card-title"><h3>${escape(s.name)}</h3><span>${image ? 'Collected' : 'To explore'}</span></div></button><div class="style-tags">${(s.tags || []).slice(0, 4).map(tag => `<button class="keyword" data-tag="${escape(tag)}">${escape(tag)}</button>`).join('')}</div><p class="card-keywords">${s.keywords.slice(0, 2).map(escape).join(' · ')}</p><a class="card-search" href="${links(s.keywords[0])['Google Images']}" target="_blank" rel="noopener noreferrer">Find inspiration <span aria-hidden="true">↗</span></a></article>`;
   }).join('');
+  markBusy();
   $('#empty-state').hidden = filtered.length > 0;
   $('#empty-copy').textContent = query ? 'Try a different style name or keyword.' : view === 'empty' ? 'Every style has a reference. Add an empty style to explore something new.' : 'Import an image to start your collection.';
 }
@@ -967,7 +968,7 @@ function markAnalyzing() {
   $('.hero')?.classList.toggle('queued', state === 'queued');
   $('.hero-stage')?.setAttribute('aria-busy', !!state);
   if ($('.hero-status')) $('.hero-status').lastChild.textContent = state === 'queued' ? 'Waiting in line…' : 'Identifying style…';
-  document.querySelectorAll('.hero-thumb').forEach((thumb, n) => thumb.classList.toggle('busy', reidentifying.has(style?.images[n]?.id)));
+  markBusy();
   const button = $('#reidentify-image');
   if (button) { button.disabled = !!state; button.textContent = state === 'queued' ? 'Queued' : state ? 'Identifying…' : 'Re-identify style'; }
   if ($('#reidentify-status')) $('#reidentify-status').textContent = '';
@@ -1154,7 +1155,56 @@ function markGenerating() {
   $('#generate-thought').hidden = !(first || thought);
   renderHeroLive();
   if (generationOpen()) renderRetryStatus();
+  markBusy();
 }
+// ---- Work in progress ----
+// Every image with a job running or waiting (a test, a drawing, an identification or a check) is marked on its style's
+// card, on its thumbnail in the style, and on the test it belongs to, so it is easy to find again after closing the
+// style or reloading. The server's list of active jobs counts too, so work started on another device or tab shows.
+let serverJobs = [];
+const WORK_LABELS = { reclassify: 'Identifying', review: 'Checking', generate: 'Testing', drawing: 'Drawing' };
+function workOn(imageId) {
+  const job = serverJobs.find(j => j.imageId === imageId);
+  const kind = reidentifying.has(imageId) ? 'reclassify' : generating.has(imageId) ? (liveJobs.get(imageId)?.mode === 'vector' ? 'drawing' : 'generate')
+    : reviewing.has(imageId) ? 'review' : job ? (job.kind === 'generate' && job.mode === 'vector' ? 'drawing' : job.kind) : null;
+  if (!WORK_LABELS[kind]) return null;
+  const queued = job ? job.status === 'queued' : [reidentifying.get(imageId), generating.get(imageId), reviewing.get(imageId)?.status].includes('queued');
+  return { label: WORK_LABELS[kind], queued, generationId: job?.generationId || retrying.get(imageId) || null };
+}
+function markBusy() {
+  document.querySelectorAll('#gallery .style-card').forEach(card => {
+    const style = styles.find(s => s.id === card.querySelector('[data-style]')?.dataset.style), badge = card.querySelector('.cover-busy');
+    if (!style || !badge) return;
+    const work = style.images.map(i => workOn(i.id)).filter(Boolean), running = work.find(w => !w.queued) || work[0];
+    badge.hidden = !running;
+    if (running) badge.lastChild.textContent = `${running.queued ? 'Queued' : `${running.label}…`}${work.length > 1 ? ` +${work.length - 1}` : ''}`;
+    badge.classList.toggle('queued', !!running?.queued);
+  });
+  const style = styles.find(s => s.id === selectedStyle);
+  document.querySelectorAll('.hero-thumb').forEach((thumb, n) => thumb.classList.toggle('busy', !!(style?.images[n] && workOn(style.images[n].id))));
+  const here = selectedImage ? workOn(selectedImage.id) : null;
+  document.querySelectorAll('[data-open-generation]').forEach(chip => chip.classList.toggle('busy', !!here?.generationId && chip.dataset.openGeneration === here.generationId));
+}
+async function watchServerJobs() {
+  if (document.visibilityState === 'visible') {
+    try {
+      const list = (await api('/api/jobs')).map(({ id, kind, imageId, mode, generationId, status }) => ({ id, kind, imageId, mode, generationId, status }));
+      // Jobs started elsewhere (another tab or device) are followed like this page's own, so their progress shows here.
+      const known = new Set(trackedJobs().map(j => j.id)), adopted = list.filter(j => ['generate', 'reclassify', 'review'].includes(j.kind) && j.imageId && !known.has(j.id));
+      for (const job of adopted) {
+        trackJob({ id: job.id, kind: job.kind, imageId: job.imageId, ...(job.generationId ? { generationId: job.generationId } : {}) });
+        if (job.kind === 'reclassify') reidentifying.set(job.imageId, job.status);
+        if (job.kind === 'review') reviewing.set(job.imageId, { status: job.status });
+        if (job.kind === 'generate') { generating.set(job.imageId, 'queued'); if (job.generationId) retrying.set(job.imageId, job.generationId); }
+      }
+      if (adopted.length) { markAnalyzing(); markGenerating(); pollJobs(); }
+      if (adopted.length || JSON.stringify(list) !== JSON.stringify(serverJobs)) { serverJobs = list; markBusy(); }
+    } catch {}
+  }
+  setTimeout(watchServerJobs, serverJobs.length ? 2500 : 6000);
+}
+watchServerJobs();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') markBusy(); });
 // Refreshes the details of the selected image in place (after the library changed) without rebuilding the carousel.
 function reselectImage() {
   const index = styles.find(s => s.id === selectedStyle)?.images.findIndex(i => i.id === selectedImage?.id) ?? -1;

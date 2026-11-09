@@ -237,6 +237,11 @@ dialog::backdrop{background:#20302965}
 .hero.queued .hero-stage::before{animation-duration:6s;opacity:.6}
 .hero.queued .hero-stage::after{display:none}
 .hero-thumb{position:relative}
+.cover-busy{position:absolute;top:12px;left:12px;display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border-radius:5px;background:#0b100ecc;color:#f3f1ea;font:var(--caption);letter-spacing:.1em;text-transform:uppercase}
+.cover-busy i{width:7px;height:7px;border-radius:50%;background:#f3f1ea;animation:pulse 1.2s ease-in-out infinite}
+.cover-busy.queued i{animation:none;opacity:.5}
+.generation-chip{position:relative}
+.generation-chip.busy::after{content:'';position:absolute;right:4px;top:4px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface);animation:pulse 1.2s ease-in-out infinite}
 .hero-thumb.busy::after{content:'';position:absolute;right:4px;top:4px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--surface);animation:pulse 1.2s ease-in-out infinite}
 .hero-slide{transition:background .4s ease}
 /* Style modal takes a light wash of the current image's color; text stays ink for contrast. */
